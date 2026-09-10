@@ -6,6 +6,11 @@ const REQUEST_SETTINGS = {
   reasoningEffort: null,
   endpoint: 'Responses API',
 };
+const SYSTEM_MESSAGE = {
+  role: 'system',
+  content:
+    'You are a helpful assistant inside a simple educational web agent. Answer clearly and concisely.',
+};
 
 const MODEL_PRICING_USD_PER_1M_TOKENS = {
   'gpt-5': {
@@ -46,7 +51,7 @@ export class LlmAgent {
     this.client = new OpenAI({ apiKey });
   }
 
-  async ask(userInput) {
+  async ask({ message: userInput, history = [] } = {}) {
     const message = this.normalizeInput(userInput);
 
     if (!this.client) {
@@ -58,17 +63,7 @@ export class LlmAgent {
     try {
       response = await this.client.responses.create({
         model: this.model,
-        input: [
-          {
-            role: 'system',
-            content:
-              'You are a helpful assistant inside a simple educational web agent. Answer clearly and concisely.',
-          },
-          {
-            role: 'user',
-            content: message,
-          },
-        ],
+        input: this.buildModelInput({ history, message }),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown LLM API error';
@@ -95,6 +90,20 @@ export class LlmAgent {
     }
 
     return message;
+  }
+
+  buildModelInput({ history, message }) {
+    return [
+      SYSTEM_MESSAGE,
+      ...history.map((historyMessage) => ({
+        role: historyMessage.role === 'agent' ? 'assistant' : 'user',
+        content: historyMessage.text,
+      })),
+      {
+        role: 'user',
+        content: message,
+      },
+    ];
   }
 
   buildUsageStats(usage = {}) {
