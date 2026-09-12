@@ -135,3 +135,64 @@ test('LlmAgent sends the full model input on successful requests', async () => {
   assert.equal(receivedInput.at(-1).role, 'user');
   assert.equal(receivedInput.at(-1).content, 'Next');
 });
+
+test('LlmAgent can send a prepared compressed context instead of raw history', async () => {
+  const agent = new LlmAgent({ apiKey: 'test-key', model: 'gpt-5-nano' });
+  let receivedInput = null;
+  let receivedConversationHistoryInput = null;
+  const compressedContext = [
+    {
+      role: 'system',
+      content: 'Summary of earlier conversation.',
+    },
+    {
+      role: 'user',
+      content: 'Recent raw message',
+    },
+  ];
+
+  agent.client = {
+    responses: {
+      create: async ({ input }) => {
+        receivedInput = input;
+
+        return {
+          output_text: 'Compressed done',
+          usage: {
+            input_tokens: 20,
+            output_tokens: 5,
+            total_tokens: 25,
+          },
+        };
+      },
+    },
+  };
+  agent.tokenUsageAnalyzer = {
+    async buildTokenReport({ conversationHistoryInput }) {
+      receivedConversationHistoryInput = conversationHistoryInput;
+
+      return {
+        currentRequestTokens: 4,
+        historyTokens: 12,
+        fullInputTokens: 16,
+        countingMethod: 'api',
+        context: {
+          status: 'ok',
+          contextWindow: 1000,
+          remainingInputTokens: 984,
+        },
+      };
+    },
+  };
+
+  await agent.ask({
+    message: 'Next',
+    history: [{ role: 'agent', text: 'This raw history should not be sent' }],
+    conversationHistoryInput: compressedContext,
+  });
+
+  assert.equal(receivedInput[1].content, 'Summary of earlier conversation.');
+  assert.equal(receivedInput[2].content, 'Recent raw message');
+  assert.equal(receivedInput.some((item) => item.content === 'This raw history should not be sent'), false);
+  assert.equal(receivedConversationHistoryInput, compressedContext);
+});

@@ -2,18 +2,13 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import MemoryRoundedIcon from '@mui/icons-material/MemoryRounded';
 import SendRoundedIcon from '@mui/icons-material/SendRounded';
 import SettingsSuggestRoundedIcon from '@mui/icons-material/SettingsSuggestRounded';
-import StorageRoundedIcon from '@mui/icons-material/StorageRounded';
 import {
   Alert,
   Box,
   Button,
   CircularProgress,
   CssBaseline,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
+  Divider,
   IconButton,
   LinearProgress,
   Paper,
@@ -28,27 +23,39 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
-const welcomeMessage = {
-  id: 'welcome-day-8',
-  role: 'agent',
-  text: 'Привет! Чем могу помочь?',
+const DEFAULT_MODEL_CONTEXT_LIMIT = 128_000;
+const DEFAULT_COMPRESSION = {
+  lastMessagesCount: 6,
+  summaryBatchSize: 10,
 };
-const DEFAULT_MODEL_CONTEXT_LIMIT = 16_385;
+const FULL_ACCENT = '#0f6b5f';
+const COMPRESSED_ACCENT = '#c45f3d';
+const INK = '#17201e';
+const welcomeFullMessage = {
+  id: 'welcome-full',
+  role: 'agent',
+  text: 'Я отвечаю с полной историей. Токены будут расти быстро.',
+};
+const welcomeCompressedMessage = {
+  id: 'welcome-compressed',
+  role: 'agent',
+  text: 'Я отвечаю с summary старой истории и последними сообщениями как есть.',
+};
 
 const theme = createTheme({
   palette: {
     background: {
-      default: '#f4f6f2',
+      default: '#eef3f1',
       paper: '#ffffff',
     },
     primary: {
-      main: '#145c52',
+      main: FULL_ACCENT,
     },
     secondary: {
-      main: '#b45f3c',
+      main: COMPRESSED_ACCENT,
     },
     text: {
-      primary: '#18201f',
+      primary: INK,
       secondary: '#66706d',
     },
     error: {
@@ -63,23 +70,23 @@ const theme = createTheme({
       'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     fontSize: 16,
     h1: {
-      fontSize: 'clamp(1.7rem, 2.4vw, 2.55rem)',
+      fontSize: 'clamp(1.45rem, 2vw, 2.2rem)',
       fontWeight: 780,
       letterSpacing: 0,
-      lineHeight: 1,
+      lineHeight: 1.05,
     },
     h2: {
-      fontSize: '1.05rem',
-      fontWeight: 760,
+      fontSize: '1rem',
+      fontWeight: 780,
       letterSpacing: 0,
-      lineHeight: 1.15,
+      lineHeight: 1.2,
     },
     body2: {
-      fontSize: '0.95rem',
-      lineHeight: 1.6,
+      fontSize: '0.94rem',
+      lineHeight: 1.55,
     },
     caption: {
-      fontSize: '0.82rem',
+      fontSize: '0.8rem',
       letterSpacing: 0,
       lineHeight: 1.35,
     },
@@ -91,37 +98,23 @@ const theme = createTheme({
       },
       styleOverrides: {
         root: {
-          alignItems: 'center',
           borderRadius: 8,
-          display: 'inline-flex',
-          fontWeight: 720,
-          justifyContent: 'center',
-          minHeight: 44,
+          fontWeight: 740,
+          minHeight: 42,
           textTransform: 'none',
           whiteSpace: 'nowrap',
-          '& .MuiButton-endIcon': {
-            alignItems: 'center',
-            display: 'inline-flex',
-            marginLeft: 8,
-          },
-          '& .MuiButton-endIcon svg': {
-            fontSize: 20,
-          },
         },
         contained: {
-          background: 'linear-gradient(135deg, #145c52 0%, #d2784f 100%)',
-          boxShadow: '0 16px 32px rgba(20, 92, 82, 0.2)',
+          background: FULL_ACCENT,
+          boxShadow: '0 14px 28px rgba(15, 107, 95, 0.18)',
+          '&:hover': {
+            background: '#0b5b51',
+            boxShadow: '0 16px 32px rgba(15, 107, 95, 0.22)',
+          },
           '&.Mui-disabled': {
             background: 'rgba(24, 32, 31, 0.08)',
             boxShadow: 'none',
           },
-          '&.MuiButton-containedError': {
-            background: '#b94747',
-            boxShadow: '0 12px 26px rgba(185, 71, 71, 0.18)',
-          },
-        },
-        outlined: {
-          borderColor: 'rgba(24, 32, 31, 0.16)',
         },
       },
     },
@@ -143,16 +136,9 @@ const theme = createTheme({
         root: {
           '& .MuiOutlinedInput-root': {
             background: '#ffffff',
-            borderRadius: 12,
-            boxShadow: 'inset 0 1px 2px rgba(24, 32, 31, 0.04)',
-            fontSize: '1rem',
-            lineHeight: 1.55,
-          },
-          '& .MuiOutlinedInput-notchedOutline': {
-            borderColor: 'rgba(24, 32, 31, 0.14)',
-          },
-          '& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline': {
-            borderColor: 'rgba(20, 92, 82, 0.42)',
+            borderRadius: 10,
+            fontSize: '0.96rem',
+            lineHeight: 1.5,
           },
         },
       },
@@ -160,55 +146,44 @@ const theme = createTheme({
   },
 });
 
-function removeWelcomeMessage(messages) {
-  return messages.filter((message) => message.id !== welcomeMessage.id);
-}
-
-function findRequestTokensForMessage(messages, index) {
-  const message = messages[index];
-
-  if (message?.role !== 'user') {
-    return null;
-  }
-
-  const nextAgentMessage = messages.slice(index + 1).find((item) => item.role === 'agent');
-
-  return nextAgentMessage?.metadata?.usage?.tokenReport?.currentRequestTokens ?? null;
-}
-
 function App() {
-  const [messages, setMessages] = useState([welcomeMessage]);
-  const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [isHistoryLoading, setIsHistoryLoading] = useState(true);
-  const [isResetting, setIsResetting] = useState(false);
-  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
-  const [modelName, setModelName] = useState('gpt-3.5-turbo');
+  const [fullMessages, setFullMessages] = useState([welcomeFullMessage]);
+  const [compressedMessages, setCompressedMessages] = useState([welcomeCompressedMessage]);
+  const [summary, setSummary] = useState(null);
+  const [compression, setCompression] = useState(DEFAULT_COMPRESSION);
+  const [modelName, setModelName] = useState('gpt-4o-mini');
   const [modelContextLimit, setModelContextLimit] = useState(DEFAULT_MODEL_CONTEXT_LIMIT);
+  const [input, setInput] = useState('');
   const [error, setError] = useState('');
-  const [errorDetails, setErrorDetails] = useState(null);
-  const [draftTokenReport, setDraftTokenReport] = useState(null);
-  const [draftPreviewError, setDraftPreviewError] = useState('');
-  const [isDraftPreviewLoading, setIsDraftPreviewLoading] = useState(false);
-  const chatScrollRef = useRef(null);
+  const [preview, setPreview] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isBooting, setIsBooting] = useState(true);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [lastComparison, setLastComparison] = useState(null);
   const inputRef = useRef(null);
-  const hasSavedMessages = messages.some((message) => message.id !== welcomeMessage.id);
-  const storedMessageCount = messages.filter((message) => message.id !== welcomeMessage.id).length;
-  const latestUsage = useMemo(() => {
-    return [...messages].reverse().find((message) => message.metadata?.usage)?.metadata?.usage || null;
-  }, [messages]);
-  const isDraftOverflow = draftTokenReport?.context?.status === 'overflow';
+  const hasSavedMessages =
+    hasRealMessages(fullMessages, welcomeFullMessage.id) ||
+    hasRealMessages(compressedMessages, welcomeCompressedMessage.id);
 
-  const canSend = useMemo(
-    () =>
-      input.trim().length > 0 &&
-      !isDraftOverflow &&
-      !isDraftPreviewLoading &&
-      !isLoading &&
-      !isHistoryLoading &&
-      !isResetting,
-    [input, isDraftOverflow, isDraftPreviewLoading, isHistoryLoading, isLoading, isResetting],
+  const fullLatestUsage = useMemo(() => findLatestUsage(fullMessages), [fullMessages]);
+  const compressedLatestUsage = useMemo(
+    () => findLatestUsage(compressedMessages),
+    [compressedMessages],
   );
+  const activeComparison = preview?.comparison ?? lastComparison;
+  const fullPreviewReport = preview?.full?.tokenReport ?? fullLatestUsage?.tokenReport;
+  const compressedPreviewReport =
+    preview?.compressed?.tokenReport ?? compressedLatestUsage?.tokenReport;
+  const isOverflow =
+    fullPreviewReport?.context?.status === 'overflow' ||
+    compressedPreviewReport?.context?.status === 'overflow';
+  const canSend =
+    input.trim().length > 0 &&
+    !isLoading &&
+    !isBooting &&
+    !isResetting &&
+    !isOverflow;
 
   useEffect(() => {
     let isMounted = true;
@@ -223,34 +198,43 @@ function App() {
         const configData = await configResponse.json().catch(() => ({}));
 
         if (!messagesResponse.ok) {
-          throw new Error(messagesData.error || 'Не удалось загрузить историю диалога.');
+          throw new Error(messagesData.error || 'Не удалось загрузить историю.');
         }
 
-        const savedMessages = Array.isArray(messagesData.messages) ? messagesData.messages : [];
-        const configuredModelLimit =
+        if (!isMounted) {
+          return;
+        }
+
+        const savedFullMessages = Array.isArray(messagesData.fullMessages)
+          ? messagesData.fullMessages
+          : [];
+        const savedCompressedMessages = Array.isArray(messagesData.compressedMessages)
+          ? messagesData.compressedMessages
+          : [];
+
+        setFullMessages(savedFullMessages.length > 0 ? savedFullMessages : [welcomeFullMessage]);
+        setCompressedMessages(
+          savedCompressedMessages.length > 0
+            ? savedCompressedMessages
+            : [welcomeCompressedMessage],
+        );
+        setSummary(messagesData.summary ?? null);
+        setModelName(configResponse.ok && configData.model ? configData.model : 'gpt-4o-mini');
+        setModelContextLimit(
           configResponse.ok && Number.isInteger(configData.modelContextWindow)
             ? configData.modelContextWindow
-            : DEFAULT_MODEL_CONTEXT_LIMIT;
-
-        if (isMounted) {
-          setMessages(savedMessages.length > 0 ? savedMessages : [welcomeMessage]);
-          setModelName(configResponse.ok && configData.model ? configData.model : 'gpt-3.5-turbo');
-          setModelContextLimit(configuredModelLimit);
+            : DEFAULT_MODEL_CONTEXT_LIMIT,
+        );
+        if (configResponse.ok && configData.compressionDefaults) {
+          setCompression(configData.compressionDefaults);
         }
       } catch (requestError) {
-        const message =
-          requestError instanceof Error
-            ? requestError.message
-            : 'Не удалось загрузить историю диалога.';
-
-        if (isMounted) {
-          setErrorDetails(null);
-          setError(message);
-          setMessages([welcomeMessage]);
-        }
+        setError(
+          formatRequestError(requestError, 'Не удалось загрузить историю.'),
+        );
       } finally {
         if (isMounted) {
-          setIsHistoryLoading(false);
+          setIsBooting(false);
         }
       }
     }
@@ -263,20 +247,16 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const message = input.trim();
-
-    if (isHistoryLoading || isResetting) {
-      setDraftTokenReport(null);
-      setDraftPreviewError('');
-      setIsDraftPreviewLoading(false);
+    if (isBooting || isResetting) {
+      setPreview(null);
+      setIsPreviewLoading(false);
       return undefined;
     }
 
     const controller = new AbortController();
-    setDraftTokenReport(null);
-    setDraftPreviewError('');
-    setIsDraftPreviewLoading(true);
+    const message = input.trim();
 
+    setIsPreviewLoading(true);
     const timeoutId = window.setTimeout(async () => {
       try {
         const response = await fetch('/api/context-preview', {
@@ -284,27 +264,23 @@ function App() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ message }),
+          body: JSON.stringify({ message, compression }),
           signal: controller.signal,
         });
         const data = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          throw new Error(data.error || 'Не удалось предварительно посчитать токены.');
+          throw new Error(data.error || 'Не удалось посчитать токены.');
         }
 
-        setDraftTokenReport(data.tokenReport ?? null);
-        setDraftPreviewError('');
+        setPreview(data);
       } catch (requestError) {
-        if (requestError?.name === 'AbortError') {
-          return;
+        if (requestError?.name !== 'AbortError') {
+          setPreview(null);
         }
-
-        setDraftTokenReport(null);
-        setDraftPreviewError('Не удалось заранее проверить лимит контекста.');
       } finally {
         if (!controller.signal.aborted) {
-          setIsDraftPreviewLoading(false);
+          setIsPreviewLoading(false);
         }
       }
     }, 300);
@@ -313,81 +289,74 @@ function App() {
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [input, isHistoryLoading, isResetting, storedMessageCount]);
-
-  useLayoutEffect(() => {
-    const chatNode = chatScrollRef.current;
-
-    if (!chatNode) {
-      return;
-    }
-
-    chatNode.scrollTo({
-      top: chatNode.scrollHeight,
-      behavior: isHistoryLoading ? 'auto' : 'smooth',
-    });
-  }, [isHistoryLoading, isLoading, messages]);
+  }, [
+    compression.lastMessagesCount,
+    compression.summaryBatchSize,
+    compressedMessages.length,
+    fullMessages.length,
+    input,
+    isBooting,
+    isResetting,
+  ]);
 
   async function handleSubmit(event) {
     event.preventDefault();
 
     const text = input.trim();
-    if (!text || isLoading || isHistoryLoading || isResetting) {
+    if (!text || !canSend) {
       return;
     }
 
-    const userMessage = {
+    const optimisticFullUser = {
       id: crypto.randomUUID(),
+      mode: 'full',
+      role: 'user',
+      text,
+    };
+    const optimisticCompressedUser = {
+      id: crypto.randomUUID(),
+      mode: 'compressed',
       role: 'user',
       text,
     };
 
-    setMessages((currentMessages) => [...removeWelcomeMessage(currentMessages), userMessage]);
-    setInput('');
     setError('');
-    setErrorDetails(null);
+    setInput('');
     setIsLoading(true);
+    setFullMessages((messages) => [...removeWelcome(messages, welcomeFullMessage.id), optimisticFullUser]);
+    setCompressedMessages((messages) => [
+      ...removeWelcome(messages, welcomeCompressedMessage.id),
+      optimisticCompressedUser,
+    ]);
 
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch('/api/chat/compare', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, compression }),
       });
-
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        setError(data.error || 'Не удалось получить ответ агента.');
-        setErrorDetails(data.details ?? null);
-        return;
+        throw new Error(data.error || 'Не удалось получить ответы агентов.');
       }
 
-      setMessages((currentMessages) => [
-        ...currentMessages.map((message) =>
-          message.id === userMessage.id ? data.userMessage || message : message,
-        ),
-        data.agentMessage || {
-          id: crypto.randomUUID(),
-          role: 'agent',
-          text: data.answer,
-          metadata: {
-            model: data.model,
-            usage: data.usage,
-            settings: data.settings,
-          },
-        },
+      setFullMessages((messages) => [
+        ...replaceMessage(messages, optimisticFullUser.id, data.full?.userMessage),
+        data.full?.agentMessage ?? buildFallbackAgentMessage(data.full?.answer, data.full),
       ]);
+      setCompressedMessages((messages) => [
+        ...replaceMessage(messages, optimisticCompressedUser.id, data.compressed?.userMessage),
+        data.compressed?.agentMessage ??
+          buildFallbackAgentMessage(data.compressed?.answer, data.compressed),
+      ]);
+      setSummary(data.compressed?.summary ?? summary);
+      setLastComparison(data.comparison ?? null);
+      setPreview(null);
     } catch (requestError) {
-      const message =
-        requestError instanceof Error
-          ? requestError.message
-          : 'Произошла неизвестная ошибка.';
-
-      setError(message);
-      setErrorDetails(null);
+      setError(formatRequestError(requestError, 'Произошла неизвестная ошибка.'));
     } finally {
       setIsLoading(false);
       inputRef.current?.focus();
@@ -395,12 +364,11 @@ function App() {
   }
 
   async function handleReset() {
-    if (isLoading || isHistoryLoading || isResetting || !hasSavedMessages) {
+    if (isLoading || isBooting || isResetting || !hasSavedMessages) {
       return;
     }
 
     setError('');
-    setErrorDetails(null);
     setIsResetting(true);
 
     try {
@@ -410,23 +378,27 @@ function App() {
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.error || 'Не удалось очистить историю диалога.');
+        throw new Error(data.error || 'Не удалось очистить историю.');
       }
 
-      setMessages([welcomeMessage]);
-      setIsResetDialogOpen(false);
+      setFullMessages([welcomeFullMessage]);
+      setCompressedMessages([welcomeCompressedMessage]);
+      setSummary(null);
+      setPreview(null);
+      setLastComparison(null);
     } catch (requestError) {
-      const message =
-        requestError instanceof Error
-          ? requestError.message
-          : 'Не удалось очистить историю диалога.';
-
-      setError(message);
-      setErrorDetails(null);
+      setError(formatRequestError(requestError, 'Не удалось очистить историю.'));
     } finally {
       setIsResetting(false);
       inputRef.current?.focus();
     }
+  }
+
+  function updateCompression(key, value) {
+    setCompression((current) => ({
+      ...current,
+      [key]: value,
+    }));
   }
 
   return (
@@ -436,228 +408,139 @@ function App() {
         component="main"
         sx={{
           background:
-            'linear-gradient(118deg, rgba(20, 92, 82, 0.14) 0%, rgba(20, 92, 82, 0.04) 34%, rgba(210, 120, 79, 0.12) 68%, rgba(51, 74, 91, 0.1) 100%), #f4f6f2',
-          display: 'flex',
-          height: { xs: 'auto', lg: '100vh' },
+            'linear-gradient(118deg, rgba(15, 107, 95, 0.18) 0%, rgba(15, 107, 95, 0.06) 36%, rgba(196, 95, 61, 0.15) 72%, rgba(42, 68, 82, 0.12) 100%), #eef3f1',
           minHeight: '100vh',
-          overflow: { xs: 'auto', lg: 'hidden' },
-          p: { xs: 1, sm: 2, md: 3 },
+          p: { xs: 1, md: 2 },
         }}
       >
         <Box
-          component="section"
-          aria-label="AI Advent Day 8"
           sx={{
             display: 'grid',
-            gap: { xs: 1, md: 1.5 },
-            gridTemplateColumns: { xs: '1fr', lg: '360px minmax(0, 1fr)' },
-            gridTemplateRows: { xs: 'auto minmax(0, 1fr)', lg: 'minmax(0, 1fr)' },
-            height: { xs: 'auto', lg: '100%' },
-            m: 'auto',
-            maxWidth: 1280,
-            minHeight: 0,
-            width: '100%',
+            gap: 1.25,
+            gridTemplateRows: 'auto minmax(0, 1fr) auto',
+            height: { xs: 'auto', xl: 'calc(100vh - 32px)' },
+            maxWidth: 1500,
+            mx: 'auto',
+            minHeight: { xs: '100vh', xl: 0 },
           }}
         >
           <Paper
-            component="aside"
+            component="header"
             elevation={0}
             sx={{
-              background: 'rgba(255, 255, 255, 0.82)',
+              background: 'linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(241,248,246,0.94) 45%, rgba(255,246,241,0.95) 100%)',
               border: '1px solid rgba(24, 32, 31, 0.12)',
               borderRadius: 2,
-              boxShadow: '0 24px 70px rgba(24, 32, 31, 0.13)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: { xs: 1, md: 1.25 },
-              height: { xs: 'auto', lg: '100%' },
-              minHeight: 0,
-              overflow: 'hidden',
-              p: { xs: 1.2, sm: 1.5, md: 2 },
-            }}
-          >
-            <Box
-              sx={{
-                display: 'grid',
-                gap: 1,
-                gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', lg: '1fr' },
-              }}
-            >
-              <StatusTile
-                icon={<StorageRoundedIcon />}
-                label="Память"
-                value={hasSavedMessages ? 'SQLite активна' : 'Пока пусто'}
-              />
-              <StatusTile
-                icon={<SettingsSuggestRoundedIcon />}
-                label="Сообщения"
-                value={formatNumber(storedMessageCount)}
-              />
-            </Box>
-
-            <Panel title="Лимит модели">
-              <ModelContextStatus
-                draftTokenReport={draftTokenReport}
-                latestUsage={latestUsage}
-                modelContextLimit={modelContextLimit}
-                modelName={modelName}
-              />
-            </Panel>
-
-            <Panel title="Сессия" sx={{ mt: { lg: 'auto' } }}>
-              <SessionStats
-                draftTokenReport={draftTokenReport}
-                latestUsage={latestUsage}
-                messageCount={storedMessageCount}
-              />
-            </Panel>
-          </Paper>
-
-          <Paper
-            component="section"
-            elevation={0}
-            sx={{
-              background: '#fffdf8',
-              border: '1px solid rgba(24, 32, 31, 0.12)',
-              borderRadius: 2,
-              boxShadow: '0 24px 70px rgba(24, 32, 31, 0.12)',
               display: 'grid',
-              gridTemplateRows: 'auto minmax(0, 1fr) auto',
-              minHeight: { xs: '72vh', lg: 0 },
-              overflow: 'hidden',
+              gap: 1.25,
+              gridTemplateColumns: { xs: '1fr', lg: 'minmax(230px, 0.42fr) minmax(0, 1.58fr)' },
+              p: { xs: 1.2, md: 1.5 },
             }}
           >
-            <Box
-              component="header"
-              sx={{
-                alignItems: 'center',
-                borderBottom: '1px solid rgba(24, 32, 31, 0.1)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                minHeight: 68,
-                px: { xs: 1.2, sm: 1.6, md: 2 },
-                py: 1,
-              }}
-            >
-              <Box
-                sx={{
-                  alignItems: 'center',
-                  background: '#18201f',
-                  borderRadius: 1.5,
-                  color: '#fff8ef',
-                  display: 'inline-flex',
-                  fontSize: '0.86rem',
-                  fontWeight: 780,
-                  gap: 0.75,
-                  lineHeight: 1,
-                  px: 1.05,
-                  py: 0.85,
-                  width: 'fit-content',
-                }}
-              >
-                <MemoryRoundedIcon sx={{ display: 'block', fontSize: 18 }} />
-                AI Advent · День 8
-              </Box>
-
-              <Tooltip title="Очистить историю">
-                <span>
-                  <IconButton
-                    aria-label="Очистить историю"
-                    color="error"
-                    disabled={isLoading || isHistoryLoading || isResetting || !hasSavedMessages}
-                    onClick={() => setIsResetDialogOpen(true)}
-                    sx={{
-                      background: 'rgba(185, 71, 71, 0.08)',
-                      border: '1px solid rgba(185, 71, 71, 0.18)',
-                      color: '#9d3333',
-                      height: 40,
-                      width: 40,
-                      '&:hover': {
-                        background: 'rgba(185, 71, 71, 0.14)',
-                      },
-                    }}
-                  >
-                    <DeleteOutlineRoundedIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-            </Box>
-
-            <Box
-              aria-live="polite"
-              ref={chatScrollRef}
-              sx={{
-                background:
-                  'linear-gradient(180deg, rgba(20, 92, 82, 0.045) 0%, rgba(255, 253, 248, 0) 32%), #fffdf8',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 1,
-                minHeight: 0,
-                overflowY: 'auto',
-                px: { xs: 1, sm: 1.5, md: 2 },
-                py: { xs: 1.2, sm: 1.6 },
-              }}
-            >
-              {messages.map((message, index) => (
-                <MessageBubble
-                  key={message.id}
-                  message={message}
-                  requestTokens={findRequestTokensForMessage(messages, index)}
-                />
-              ))}
-
-              {isLoading && (
-                <MessageBubble
-                  message={{
-                    id: 'loading',
-                    role: 'agent',
-                    text: 'Думаю и вызываю LLM...',
+            <Stack spacing={1}>
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                <Box
+                  sx={{
+                    alignItems: 'center',
+                    background: INK,
+                    borderRadius: 1.2,
+                    color: '#fff8ef',
+                    display: 'inline-flex',
+                    fontSize: '0.84rem',
+                    fontWeight: 780,
+                    gap: 0.7,
+                    lineHeight: 1,
+                    px: 1,
+                    py: 0.75,
                   }}
-                  isLoading
-                />
-              )}
-
-              {isHistoryLoading && (
-                <MessageBubble
-                  message={{
-                    id: 'history-loading',
-                    role: 'agent',
-                    text: 'Загружаю сохраненную историю...',
-                  }}
-                  isLoading
-                />
-              )}
-            </Box>
+                >
+                  <MemoryRoundedIcon sx={{ fontSize: 18 }} />
+                  AI Advent · День 9
+                </Box>
+                <Typography color="text.secondary" variant="caption">
+                  {modelName} · окно {formatNumber(modelContextLimit)} ток.
+                </Typography>
+              </Stack>
+            </Stack>
 
             <Stack
-              component="form"
-              onSubmit={handleSubmit}
+              direction={{ xs: 'column', sm: 'row' }}
               spacing={1}
-              sx={{
-                background: '#ffffff',
-                borderTop: '1px solid rgba(24, 32, 31, 0.1)',
-                p: { xs: 1, sm: 1.25, md: 1.5 },
-              }}
+              sx={{ minWidth: 0 }}
             >
+              <TokenComparison comparison={activeComparison} />
+              <SummaryStatus summary={summary} />
+            </Stack>
+          </Paper>
+
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 1.25,
+              gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' },
+              minHeight: 0,
+            }}
+          >
+            <ChatPanel
+              accent={FULL_ACCENT}
+              headerBackground="linear-gradient(135deg, rgba(15, 107, 95, 0.13) 0%, rgba(255, 255, 255, 0.86) 72%)"
+              isBooting={isBooting}
+              isLoading={isLoading}
+              messages={fullMessages}
+              previewReport={fullPreviewReport}
+              title="Без сжатия"
+              subtitle="В модель уходит вся история диалога"
+              welcomeId={welcomeFullMessage.id}
+            />
+            <ChatPanel
+              accent={COMPRESSED_ACCENT}
+              headerBackground="linear-gradient(135deg, rgba(196, 95, 61, 0.15) 0%, rgba(255, 255, 255, 0.86) 72%)"
+              compressionStats={preview?.compressed?.compressionStats}
+              isBooting={isBooting}
+              isLoading={isLoading}
+              messages={compressedMessages}
+              previewReport={compressedPreviewReport}
+              title="Со сжатием"
+              subtitle={`Summary + последние ${compression.lastMessagesCount} сообщений`}
+              welcomeId={welcomeCompressedMessage.id}
+              extraHeader={
+                <CompressionControls
+                  compression={compression}
+                  disabled={isLoading || isBooting || isResetting}
+                  onChange={updateCompression}
+                />
+              }
+            />
+          </Box>
+
+          <Paper
+            component="form"
+            elevation={0}
+            onSubmit={handleSubmit}
+            sx={{
+              background: 'rgba(255, 255, 255, 0.96)',
+              border: '1px solid rgba(24, 32, 31, 0.12)',
+              borderRadius: 2,
+              display: 'grid',
+              gap: 1,
+              gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) auto' },
+              p: { xs: 1, md: 1.25 },
+            }}
+          >
+            <Stack spacing={1}>
               {error && (
                 <Alert severity="error" sx={{ borderRadius: 1.5 }}>
-                  <ErrorNotice error={error} details={errorDetails} latestUsage={latestUsage} />
+                  {error}
                 </Alert>
               )}
-              {draftPreviewError && !error && (
+              {isOverflow && !error && (
                 <Alert severity="warning" sx={{ borderRadius: 1.5 }}>
-                  {draftPreviewError}
+                  Следующий запрос превышает лимит контекста в одном из режимов.
                 </Alert>
               )}
-              {isDraftOverflow && !error && (
-                <Alert severity="warning" sx={{ borderRadius: 1.5 }}>
-                  <DraftLimitNotice latestUsage={latestUsage} tokenReport={draftTokenReport} />
-                </Alert>
-              )}
-
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                 <TextField
-                  disabled={isLoading || isHistoryLoading || isResetting}
+                  disabled={isLoading || isBooting || isResetting}
                   fullWidth
                   inputRef={inputRef}
                   maxRows={5}
@@ -666,59 +549,302 @@ function App() {
                   onChange={(event) => {
                     setInput(event.target.value);
                     setError('');
-                    setErrorDetails(null);
                   }}
-                  placeholder="Напишите сообщение агенту"
+                  placeholder="Один запрос уйдет сразу в оба чата"
                   value={input}
                 />
                 <Button
                   disabled={!canSend}
-                  endIcon={
-                    isLoading || isDraftPreviewLoading ? (
-                      <CircularProgress color="inherit" size={16} />
-                    ) : (
-                      <SendRoundedIcon />
-                    )
-                  }
+                  endIcon={isLoading ? <CircularProgress color="inherit" size={16} /> : <SendRoundedIcon />}
                   sx={{
                     alignSelf: 'stretch',
+                    background: FULL_ACCENT,
+                    '&:hover': {
+                      background: '#0b5b51',
+                    },
                     minHeight: { xs: 48, sm: 68 },
-                    minWidth: { xs: '100%', sm: 132 },
-                    px: 2,
+                    minWidth: { xs: '100%', sm: 140 },
                   }}
                   type="submit"
                   variant="contained"
                 >
-                  {isLoading ? 'Жду' : isDraftPreviewLoading ? 'Считаю' : isDraftOverflow ? 'Лимит' : 'Отправить'}
+                  {isLoading ? 'Жду ответ' : 'Отправить'}
                 </Button>
               </Stack>
             </Stack>
+
+            <Box sx={{ alignSelf: 'end', justifySelf: { xs: 'start', lg: 'end' } }}>
+              <Tooltip title="Очистить обе истории и summary">
+                <span>
+                  <IconButton
+                    aria-label="Очистить историю"
+                    color="error"
+                    disabled={isLoading || isBooting || isResetting || !hasSavedMessages}
+                    onClick={handleReset}
+                    sx={{
+                      background: 'rgba(185, 71, 71, 0.08)',
+                      border: '1px solid rgba(185, 71, 71, 0.18)',
+                      height: 42,
+                      width: 42,
+                    }}
+                  >
+                    <DeleteOutlineRoundedIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </Box>
           </Paper>
         </Box>
       </Box>
-
-      <Dialog
-        fullWidth
-        maxWidth="xs"
-        onClose={() => !isResetting && setIsResetDialogOpen(false)}
-        open={isResetDialogOpen}
-      >
-        <DialogTitle>Очистить историю?</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            Все сохраненные сообщения будут удалены из SQLite. Это действие нельзя отменить.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button disabled={isResetting} onClick={() => setIsResetDialogOpen(false)}>
-            Отмена
-          </Button>
-          <Button color="error" disabled={isResetting} onClick={handleReset} variant="contained">
-            {isResetting ? 'Очищаю...' : 'Очистить'}
-          </Button>
-        </DialogActions>
-      </Dialog>
     </ThemeProvider>
+  );
+}
+
+function ChatPanel({
+  accent,
+  compressionStats = null,
+  extraHeader = null,
+  headerBackground,
+  isBooting,
+  isLoading,
+  messages,
+  previewReport,
+  subtitle,
+  title,
+  welcomeId,
+}) {
+  const scrollRef = useRef(null);
+  const realMessages = removeWelcome(messages, welcomeId);
+  const latestUsage = findLatestUsage(messages);
+
+  useLayoutEffect(() => {
+    const node = scrollRef.current;
+
+    if (!node) {
+      return;
+    }
+
+    node.scrollTo({
+      top: node.scrollHeight,
+      behavior: isBooting ? 'auto' : 'smooth',
+    });
+  }, [isBooting, isLoading, messages]);
+
+  return (
+    <Paper
+      component="section"
+      elevation={0}
+      sx={{
+        background: '#ffffff',
+        border: '1px solid rgba(24, 32, 31, 0.13)',
+        borderRadius: 2,
+        boxShadow: '0 20px 56px rgba(24, 32, 31, 0.1)',
+        display: 'grid',
+        gridTemplateRows: 'auto auto minmax(0, 1fr)',
+        minHeight: { xs: 560, lg: 0 },
+        overflow: 'hidden',
+      }}
+    >
+      <Box
+        component="header"
+        sx={{
+          background: headerBackground,
+          borderBottom: '1px solid rgba(24, 32, 31, 0.1)',
+          display: 'grid',
+          gap: 0.8,
+          p: { xs: 1.1, md: 1.25 },
+        }}
+      >
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+          <Stack spacing={0.2}>
+            <Typography component="h2" sx={{ color: accent }} variant="h2">
+              {title}
+            </Typography>
+            <Typography color="text.secondary" variant="caption">
+              {subtitle}
+            </Typography>
+          </Stack>
+          <Box
+            sx={{
+              background: accent,
+              borderRadius: 1,
+              height: 12,
+              width: 12,
+            }}
+          />
+        </Stack>
+        {extraHeader}
+        <ContextMeter accent={accent} latestUsage={latestUsage} previewReport={previewReport} />
+      </Box>
+
+      {compressionStats && (
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{
+            background: 'rgba(196, 95, 61, 0.1)',
+            borderBottom: '1px solid rgba(24, 32, 31, 0.08)',
+            flexWrap: 'wrap',
+            gap: 0.8,
+            px: 1.25,
+            py: 0.8,
+          }}
+        >
+          <TinyStat label="Дословно в запросе" value={formatNumber(compressionStats.rawRecentMessageCount)} />
+          <TinyStat label="Символов summary" value={formatNumber(compressionStats.summaryCharacters)} />
+          <TinyStat label="Ждут batch" value={formatNumber(compressionStats.pendingSummaryMessageCount)} />
+        </Stack>
+      )}
+
+      <Box
+        aria-live="polite"
+        ref={scrollRef}
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          p: { xs: 1, md: 1.25 },
+        }}
+      >
+        {messages.map((message, index) => (
+          <MessageBubble
+            key={message.id}
+            message={message}
+            requestTokens={findRequestTokensForMessage(messages, index)}
+          />
+        ))}
+        {isLoading && (
+          <MessageBubble
+            isLoading
+            message={{
+              id: `${title}-loading`,
+              role: 'agent',
+              text: 'Думаю...',
+            }}
+          />
+        )}
+        {isBooting && (
+          <MessageBubble
+            isLoading
+            message={{
+              id: `${title}-booting`,
+              role: 'agent',
+              text: 'Загружаю историю...',
+            }}
+          />
+        )}
+        {realMessages.length === 0 && !isBooting && (
+          <Typography color="text.secondary" sx={{ px: 0.5 }} variant="caption">
+            Начните диалог, чтобы увидеть отличие в расходе токенов.
+          </Typography>
+        )}
+      </Box>
+    </Paper>
+  );
+}
+
+function CompressionControls({ compression, disabled, onChange }) {
+  return (
+    <Box
+      sx={{
+        background: 'linear-gradient(135deg, rgba(196, 95, 61, 0.1) 0%, rgba(255,255,255,0.9) 70%)',
+        border: '1px solid rgba(24, 32, 31, 0.1)',
+        borderRadius: 1.5,
+        p: 1,
+      }}
+    >
+      <Stack direction="row" spacing={0.8} sx={{ alignItems: 'center', mb: 1 }}>
+        <SettingsSuggestRoundedIcon sx={{ color: COMPRESSED_ACCENT, fontSize: 18 }} />
+        <Typography color="text.secondary" fontWeight={780} variant="caption">
+          Как сжимать правый чат
+        </Typography>
+      </Stack>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+        <CompressionNumberField
+          description="Столько последних сообщений останется в запросе без изменений."
+          disabled={disabled}
+          label="Оставлять дословно"
+          max={30}
+          min={2}
+          onChange={(event) => onChange('lastMessagesCount', Number(event.target.value))}
+          value={compression.lastMessagesCount}
+        />
+        <CompressionNumberField
+          description="Когда накопится столько старых сообщений, они свернутся в summary."
+          disabled={disabled}
+          label="Обновлять summary каждые"
+          max={50}
+          min={2}
+          onChange={(event) => onChange('summaryBatchSize', Number(event.target.value))}
+          value={compression.summaryBatchSize}
+        />
+      </Stack>
+    </Box>
+  );
+}
+
+function CompressionNumberField({ description, disabled, label, max, min, onChange, value }) {
+  return (
+    <Stack spacing={0.45} sx={{ flex: 1, minWidth: 0 }}>
+      <Typography
+        color="text.secondary"
+        component="label"
+        sx={{ fontSize: '0.78rem', fontWeight: 720, lineHeight: 1.2 }}
+      >
+        {label}
+      </Typography>
+      <TextField
+        disabled={disabled}
+        fullWidth
+        inputProps={{ 'aria-label': label, max, min, step: 1 }}
+        onChange={onChange}
+        sx={{
+          '& .MuiOutlinedInput-input': {
+            py: 0.9,
+          },
+        }}
+        type="number"
+        value={value}
+      />
+      <Typography color="text.secondary" sx={{ fontSize: '0.76rem', lineHeight: 1.25 }}>
+        {description}
+      </Typography>
+    </Stack>
+  );
+}
+
+function ContextMeter({ accent, latestUsage, previewReport }) {
+  const report = previewReport ?? latestUsage?.tokenReport;
+  const usedTokens = report?.context?.inputTokens ?? report?.fullInputTokens ?? 0;
+  const limit = report?.context?.contextWindow ?? DEFAULT_MODEL_CONTEXT_LIMIT;
+  const percent = limit > 0 ? Math.min((usedTokens / limit) * 100, 100) : 0;
+
+  return (
+    <Stack spacing={0.6}>
+      <LinearProgress
+        sx={{
+          bgcolor: 'rgba(24, 32, 31, 0.08)',
+          borderRadius: 1,
+          height: 7,
+          '& .MuiLinearProgress-bar': {
+            background: accent,
+            borderRadius: 1,
+          },
+        }}
+        value={percent}
+        variant="determinate"
+      />
+      <Stack direction="row" spacing={1} sx={{ justifyContent: 'space-between' }}>
+        <Typography color="text.secondary" variant="caption">
+          input: {formatNumber(usedTokens)} ток.
+        </Typography>
+        <Typography color="text.secondary" variant="caption">
+          история: {formatNumber(report?.conversationHistoryTokens)} ток.
+        </Typography>
+      </Stack>
+    </Stack>
   );
 }
 
@@ -732,17 +858,17 @@ function MessageBubble({ message, isLoading = false, requestTokens = null }) {
       sx={{
         alignSelf: isUser ? 'flex-end' : 'flex-start',
         background: isUser
-          ? 'linear-gradient(135deg, #dff1e5 0%, #f8ead8 100%)'
-          : 'linear-gradient(180deg, #ffffff 0%, #fbfaf5 100%)',
+          ? 'linear-gradient(135deg, rgba(15, 107, 95, 0.14) 0%, rgba(196, 95, 61, 0.1) 100%)'
+          : 'linear-gradient(180deg, #ffffff 0%, #f7faf8 100%)',
         border: '1px solid',
         borderColor: isUser ? 'rgba(20, 92, 82, 0.18)' : 'rgba(24, 32, 31, 0.1)',
         borderRadius: 2,
         boxShadow: isUser
-          ? '0 16px 36px rgba(20, 92, 82, 0.12)'
-          : '0 16px 36px rgba(24, 32, 31, 0.08)',
-        maxWidth: { xs: '100%', md: '78%' },
-        px: { xs: 1, sm: 1.2 },
-        py: { xs: 0.9, sm: 1 },
+          ? '0 14px 30px rgba(20, 92, 82, 0.1)'
+          : '0 14px 30px rgba(24, 32, 31, 0.07)',
+        maxWidth: { xs: '100%', md: '86%' },
+        px: 1,
+        py: 0.9,
       }}
     >
       <Stack spacing={0.55}>
@@ -750,7 +876,7 @@ function MessageBubble({ message, isLoading = false, requestTokens = null }) {
           <Box
             aria-hidden="true"
             sx={{
-              background: isUser ? '#145c52' : '#d2784f',
+              background: isUser ? FULL_ACCENT : COMPRESSED_ACCENT,
               borderRadius: 1,
               height: 8,
               width: 8,
@@ -764,23 +890,29 @@ function MessageBubble({ message, isLoading = false, requestTokens = null }) {
         <Typography sx={{ overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }} variant="body2">
           {message.text}
         </Typography>
-        {isUser && typeof requestTokens === 'number' && <UserMessageStats tokens={requestTokens} />}
+        {isUser && typeof requestTokens === 'number' && (
+          <MessageMetaLine items={[`сообщение: ${formatNumber(requestTokens)} ток.`]} />
+        )}
         {!isUser && message.metadata && <MessageStats metadata={message.metadata} />}
       </Stack>
     </Paper>
   );
 }
 
-function UserMessageStats({ tokens }) {
-  return <MessageMetaLine items={[`сообщение: ${formatNumber(tokens)} ток.`]} />;
-}
-
 function MessageStats({ metadata }) {
   const { model, usage } = metadata;
-  const tokenText = `потрачено: ${formatNumber(usage?.totalTokens)} ток.`;
-  const priceText = formatCost(usage?.cost);
+  const items = [
+    model || 'unknown',
+    `input: ${formatNumber(usage?.inputTokens)} ток.`,
+    `output: ${formatNumber(usage?.outputTokens)} ток.`,
+    formatCost(usage?.cost),
+  ];
 
-  return <MessageMetaLine items={[model || 'unknown', tokenText, priceText]} />;
+  if (metadata.compression?.summaryUpdated) {
+    items.push('summary обновлен');
+  }
+
+  return <MessageMetaLine items={items} />;
 }
 
 function MessageMetaLine({ items }) {
@@ -789,8 +921,7 @@ function MessageMetaLine({ items }) {
       direction="row"
       spacing={0.6}
       sx={{
-        borderTop: '1px solid',
-        borderColor: 'rgba(24, 32, 31, 0.1)',
+        borderTop: '1px solid rgba(24, 32, 31, 0.1)',
         flexWrap: 'wrap',
         gap: 0.5,
         mt: 0.55,
@@ -798,16 +929,7 @@ function MessageMetaLine({ items }) {
       }}
     >
       {items.map((item) => (
-        <Typography
-          color="text.secondary"
-          component="span"
-          key={item}
-          sx={{
-            fontSize: '0.78rem',
-            lineHeight: 1.35,
-          }}
-          variant="caption"
-        >
+        <Typography color="text.secondary" component="span" key={item} variant="caption">
           {item}
         </Typography>
       ))}
@@ -815,316 +937,157 @@ function MessageMetaLine({ items }) {
   );
 }
 
-function ErrorNotice({ error, details, latestUsage }) {
-  const previousInputTokens =
-    latestUsage?.tokenReport?.context?.inputTokens ?? latestUsage?.tokenReport?.fullInputTokens;
-  const hasOverflowDetails =
-    details &&
-    typeof details.fullInputTokens === 'number' &&
-    typeof details.contextWindow === 'number';
-
-  return (
-    <Stack spacing={0.55}>
-      <Typography sx={{ fontSize: '0.95rem', lineHeight: 1.45 }}>{error}</Typography>
-      {hasOverflowDetails && (
-        <>
-          <Typography color="text.secondary" sx={{ fontSize: '0.84rem', lineHeight: 1.45 }}>
-            {typeof previousInputTokens === 'number'
-              ? `${formatNumber(previousInputTokens)} ток. слева - это последний успешный запрос, а не прогноз следующего. `
-              : ''}
-            При отправке сервер пересчитывает весь следующий input: сохраненная история,
-            включая последний ответ агента, плюс новое сообщение.
-          </Typography>
-          <Typography color="text.secondary" sx={{ fontSize: '0.84rem', fontWeight: 720, lineHeight: 1.35 }}>
-            Следующий input: {formatNumber(details.fullInputTokens)} ток. · системный prompt:{' '}
-            {formatNumber(details.systemInstructionTokens)} ток. · история чата:{' '}
-            {formatNumber(details.conversationHistoryTokens)} ток. · новое сообщение:{' '}
-            {formatNumber(details.currentRequestTokens)} ток. · лимит: {formatNumber(details.contextWindow)} ток.
-          </Typography>
-        </>
-      )}
-    </Stack>
-  );
-}
-
-function DraftLimitNotice({ latestUsage, tokenReport }) {
-  const context = tokenReport?.context;
-  const hasDraftText = (tokenReport?.currentRequestTokens ?? 0) > 0;
-  const hasConversationHistory = (tokenReport?.conversationHistoryTokens ?? 0) > 0;
-  const previousInputTokens =
-    latestUsage?.tokenReport?.context?.inputTokens ?? latestUsage?.tokenReport?.fullInputTokens;
-  const overflowTokens =
-    typeof context?.remainingInputTokens === 'number'
-      ? Math.max(Math.abs(context.remainingInputTokens), 0)
-      : Math.max((tokenReport?.fullInputTokens ?? 0) - (context?.contextWindow ?? 0), 0);
-
-  return (
-    <Stack spacing={0.55}>
-      <Typography sx={{ fontSize: '0.95rem', fontWeight: 720, lineHeight: 1.45 }}>
-        {hasDraftText
-          ? 'Лимит будет превышен до отправки.'
-          : hasConversationHistory
-            ? 'Сохраненная история уже превышает лимит.'
-            : 'Системный prompt уже превышает лимит.'}
-      </Typography>
-      <Typography color="text.secondary" sx={{ fontSize: '0.84rem', lineHeight: 1.45 }}>
-        {hasDraftText ? 'Следующий input уже занимает' : 'Текущий контекст занимает'}{' '}
-        {formatNumber(tokenReport?.fullInputTokens)} ток. при лимите {formatNumber(context?.contextWindow)} ток.
-        {typeof previousInputTokens === 'number'
-          ? ` ${formatNumber(previousInputTokens)} ток. слева - это прошлый успешный расчет.`
-          : ''}
-      </Typography>
-      <Typography color="text.secondary" sx={{ fontSize: '0.84rem', fontWeight: 720, lineHeight: 1.35 }}>
-        Системный prompt: {formatNumber(tokenReport?.systemInstructionTokens)} ток. · история чата:{' '}
-        {formatNumber(tokenReport?.conversationHistoryTokens)} ток.
-        {hasDraftText ? ` · черновик: ${formatNumber(tokenReport?.currentRequestTokens)} ток.` : ''} ·
-        превышение: {formatNumber(overflowTokens)} ток.
-      </Typography>
-    </Stack>
-  );
-}
-
-function ModelContextStatus({
-  draftTokenReport,
-  latestUsage,
-  modelContextLimit,
-  modelName,
-}) {
-  const activeTokenReport = draftTokenReport ?? latestUsage?.tokenReport;
-  const context = activeTokenReport?.context;
-  const usedTokens = context?.inputTokens ?? activeTokenReport?.fullInputTokens ?? 0;
-  const effectiveLimit = context?.contextWindow ?? modelContextLimit;
-  const remainingTokens =
-    typeof effectiveLimit === 'number' ? effectiveLimit - usedTokens : null;
-  const balanceText =
-    remainingTokens === null
-      ? '-'
-      : remainingTokens < 0
-        ? `превышение: ${formatNumber(Math.abs(remainingTokens))} ток.`
-        : `до лимита: ${formatNumber(remainingTokens)} ток.`;
-  const progressValue =
-    typeof effectiveLimit === 'number' && effectiveLimit > 0
-      ? Math.min((usedTokens / effectiveLimit) * 100, 100)
-      : 0;
-  const hasTokenBreakdown = typeof activeTokenReport?.systemInstructionTokens === 'number';
-  const usageLabel = draftTokenReport
-    ? (draftTokenReport.currentRequestTokens ?? 0) > 0
-      ? 'Следующий запрос'
-      : 'Текущий контекст'
-    : 'Последний запрос';
-
-  return (
-    <Stack spacing={1}>
-      <Stack direction="row" spacing={0.75} sx={{ justifyContent: 'space-between' }}>
-        <Typography color="text.secondary" variant="caption">
-          Модель
-        </Typography>
-        <Typography color="text.secondary" variant="caption">
-          {modelName}
-        </Typography>
-      </Stack>
-      <Stack direction="row" spacing={0.75} sx={{ justifyContent: 'space-between' }}>
-        <Typography color="text.secondary" variant="caption">
-          Окно контекста
-        </Typography>
-        <Typography color="text.secondary" variant="caption">
-          {formatNumber(effectiveLimit)} ток.
-        </Typography>
-      </Stack>
-      <LinearProgress
-        color={context?.status === 'overflow' ? 'error' : 'primary'}
-        sx={{
-          bgcolor: 'rgba(24, 32, 31, 0.08)',
-          borderRadius: 1,
-          height: 8,
-          '& .MuiLinearProgress-bar': {
-            background: 'linear-gradient(90deg, #145c52 0%, #d2784f 100%)',
-            borderRadius: 1,
-          },
-        }}
-        value={progressValue}
-        variant="determinate"
-      />
-      <Typography color="text.secondary" variant="caption">
-        {usageLabel}: {formatNumber(usedTokens)} ток. · {balanceText}
-      </Typography>
-      {hasTokenBreakdown && (
-        <Stack spacing={0.35} sx={{ pt: 0.15 }}>
-          <MetricLine
-            label="Системный prompt"
-            value={`${formatNumber(activeTokenReport.systemInstructionTokens)} ток.`}
-          />
-          <MetricLine
-            label="История чата"
-            value={`${formatNumber(activeTokenReport.conversationHistoryTokens)} ток.`}
-          />
-          {(activeTokenReport.currentRequestTokens ?? 0) > 0 && (
-            <MetricLine
-              label="Черновик"
-              value={`${formatNumber(activeTokenReport.currentRequestTokens)} ток.`}
-            />
-          )}
-        </Stack>
-      )}
-    </Stack>
-  );
-}
-
-function SessionStats({ draftTokenReport, latestUsage, messageCount }) {
-  const activeTokenReport = draftTokenReport ?? latestUsage?.tokenReport;
-  const context = activeTokenReport?.context;
-  const usedTokens = context?.inputTokens ?? activeTokenReport?.fullInputTokens ?? 0;
-  const effectiveLimit = context?.contextWindow;
-  const remainingTokens =
-    typeof effectiveLimit === 'number' ? effectiveLimit - usedTokens : null;
-  const spentCost = {
-    estimatedUsd: latestUsage?.cumulative?.estimatedUsd,
-    currency: latestUsage?.cost?.currency || 'USD',
-  };
-  const spentTokens = latestUsage?.cumulative?.totalTokens;
-  const hasOnlySystemPrompt =
-    (activeTokenReport?.systemInstructionTokens ?? 0) > 0 &&
-    (activeTokenReport?.conversationHistoryTokens ?? 0) === 0 &&
-    (activeTokenReport?.currentRequestTokens ?? 0) === 0;
-  const usageLabel = hasOnlySystemPrompt
-    ? 'Системный prompt'
-    : draftTokenReport
-    ? (draftTokenReport.currentRequestTokens ?? 0) > 0
-      ? 'Следующий запрос'
-      : 'Текущий контекст'
-    : 'Последний запрос';
-
-  return (
-    <Stack spacing={0.75}>
-      <MetricLine label="Сообщения" value={formatNumber(messageCount)} />
-      <MetricLine
-        label={usageLabel}
-        value={`${formatNumber(usedTokens)} / ${effectiveLimit ? formatNumber(effectiveLimit) : '-'} ток.`}
-      />
-      <MetricLine
-        label={remainingTokens !== null && remainingTokens < 0 ? 'Превышение' : 'До лимита'}
-        value={
-          remainingTokens === null
-            ? '-'
-            : `${formatNumber(Math.abs(remainingTokens))} ток.`
-        }
-      />
-      <MetricLine label="Потрачено" value={`${formatNumber(spentTokens)} ток. · ${formatCost(spentCost)}`} />
-    </Stack>
-  );
-}
-
-function Panel({ children, title, sx }) {
+function TokenComparison({ comparison }) {
   return (
     <Box
       sx={{
-        background: 'rgba(255, 253, 248, 0.74)',
+        background: 'linear-gradient(135deg, rgba(15, 107, 95, 0.1) 0%, rgba(255,255,255,0.92) 72%)',
         border: '1px solid rgba(24, 32, 31, 0.1)',
-        borderRadius: 2,
-        p: 1.2,
-        ...sx,
-      }}
-    >
-      <Typography color="text.secondary" fontWeight={780} sx={{ mb: 1 }} variant="caption">
-        {title}
-      </Typography>
-      {children}
-    </Box>
-  );
-}
-
-function StatusTile({ icon, label, value }) {
-  return (
-    <Box
-      sx={{
-        alignItems: 'center',
-        background: '#fffdf8',
-        border: '1px solid rgba(24, 32, 31, 0.1)',
-        borderRadius: 2,
-        display: 'grid',
-        gap: 0.75,
-        gridTemplateColumns: '40px minmax(0, 1fr)',
-        minHeight: 64,
+        borderRadius: 1.5,
+        flex: 1,
+        minHeight: 88,
+        minWidth: 0,
         p: 1,
       }}
     >
-      <Box
-        sx={{
-          alignItems: 'center',
-          background: 'rgba(20, 92, 82, 0.1)',
-          borderRadius: 1.5,
-          color: '#145c52',
-          display: 'flex',
-          height: 40,
-          justifyContent: 'center',
-          width: 40,
-          '& svg': {
-            display: 'block',
-            fontSize: 21,
-          },
-        }}
+      <Typography color="text.secondary" fontWeight={780} sx={{ mb: 0.8 }} variant="caption">
+        Сколько токенов уйдет в следующий запрос
+      </Typography>
+      <Stack
+        direction="row"
+        divider={<Divider flexItem orientation="vertical" />}
+        spacing={1}
+        sx={{ justifyContent: 'space-between' }}
       >
-        {icon}
-      </Box>
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-          minWidth: 0,
-        }}
-      >
-        <Typography color="text.secondary" variant="caption">
-          {label}
-        </Typography>
-        <Typography
-          sx={{
-            fontSize: '0.98rem',
-            fontWeight: 760,
-            lineHeight: 1.2,
-            overflowWrap: 'anywhere',
-          }}
-        >
-          {value}
-        </Typography>
-      </Box>
+        <TinyStat
+          label="Полная история"
+          value={comparison ? `${formatNumber(comparison.fullInputTokens)} ток.` : 'после ввода'}
+        />
+        <TinyStat
+          label="Со summary"
+          value={comparison ? `${formatNumber(comparison.compressedInputTokens)} ток.` : 'после ввода'}
+        />
+        <TinyStat
+          label="Экономия"
+          value={comparison ? formatPercent(comparison.inputTokenSavingsPercent) : 'пока нет'}
+        />
+      </Stack>
     </Box>
   );
 }
 
-function MetricLine({ label, value }) {
+function SummaryStatus({ summary }) {
+  const hasSummary = Boolean(summary?.text);
+
   return (
-    <Stack
-      direction="row"
-      spacing={1}
+    <Box
       sx={{
-        alignItems: 'baseline',
-        justifyContent: 'space-between',
+        background: 'linear-gradient(135deg, rgba(196, 95, 61, 0.11) 0%, rgba(255,255,255,0.92) 72%)',
+        border: '1px solid rgba(24, 32, 31, 0.1)',
+        borderRadius: 1.5,
+        flex: 1,
+        minHeight: 88,
+        minWidth: 0,
+        p: 1,
       }}
     >
+      <Typography color="text.secondary" fontWeight={780} sx={{ mb: 0.8 }} variant="caption">
+        Что уже заменено summary
+      </Typography>
+      <Stack
+        direction="row"
+        divider={<Divider flexItem orientation="vertical" />}
+        spacing={1}
+        sx={{ justifyContent: 'space-between' }}
+      >
+        <TinyStat
+          label="Сообщений сжато"
+          value={hasSummary ? formatNumber(summary.summarizedMessageCount) : 'пока 0'}
+        />
+        <TinyStat
+          label="Размер summary"
+          value={hasSummary ? `${formatNumber(summary.text.length)} симв.` : 'summary еще нет'}
+        />
+      </Stack>
+    </Box>
+  );
+}
+
+function TinyStat({ label, value }) {
+  return (
+    <Stack spacing={0.05} sx={{ minWidth: 0 }}>
       <Typography color="text.secondary" variant="caption">
         {label}
       </Typography>
-      <Typography
-        sx={{
-          fontSize: '0.9rem',
-          fontWeight: 740,
-          lineHeight: 1.35,
-          textAlign: 'right',
-        }}
-      >
+      <Typography sx={{ fontSize: '0.88rem', fontWeight: 760, overflowWrap: 'anywhere' }}>
         {value}
       </Typography>
     </Stack>
   );
 }
 
+function hasRealMessages(messages, welcomeId) {
+  return removeWelcome(messages, welcomeId).length > 0;
+}
+
+function removeWelcome(messages, welcomeId) {
+  return messages.filter((message) => message.id !== welcomeId);
+}
+
+function replaceMessage(messages, id, replacement) {
+  if (!replacement) {
+    return messages;
+  }
+
+  return messages.map((message) => (message.id === id ? replacement : message));
+}
+
+function buildFallbackAgentMessage(answer, result) {
+  return {
+    id: crypto.randomUUID(),
+    role: 'agent',
+    text: answer || 'Модель не вернула текстовый ответ.',
+    metadata: {
+      model: result?.model,
+      usage: result?.usage,
+      settings: result?.settings,
+    },
+  };
+}
+
+function findLatestUsage(messages) {
+  return [...messages].reverse().find((message) => message.metadata?.usage)?.metadata?.usage || null;
+}
+
+function findRequestTokensForMessage(messages, index) {
+  const message = messages[index];
+
+  if (message?.role !== 'user') {
+    return null;
+  }
+
+  const nextAgentMessage = messages.slice(index + 1).find((item) => item.role === 'agent');
+
+  return nextAgentMessage?.metadata?.usage?.tokenReport?.currentRequestTokens ?? null;
+}
+
 function formatNumber(value) {
-  if (typeof value !== 'number') {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
     return '0';
   }
 
   return new Intl.NumberFormat('ru-RU').format(value);
+}
+
+function formatPercent(value) {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return '0%';
+  }
+
+  return `${new Intl.NumberFormat('ru-RU', {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: value % 1 === 0 ? 0 : 1,
+  }).format(value)}%`;
 }
 
 function formatCost(cost) {
@@ -1142,6 +1105,14 @@ function formatCost(cost) {
     minimumFractionDigits: 4,
     maximumFractionDigits: 6,
   }).format(cost.estimatedUsd);
+}
+
+function formatRequestError(error, fallback) {
+  if (error instanceof TypeError && error.message === 'Failed to fetch') {
+    return 'Не удалось подключиться к локальному API. Проверьте, что backend запущен и открыт правильный Vite URL.';
+  }
+
+  return error instanceof Error ? error.message : fallback;
 }
 
 const rootElement = document.getElementById('root');

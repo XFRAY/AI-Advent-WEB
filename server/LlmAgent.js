@@ -6,7 +6,7 @@ import {
   estimateCost,
 } from './TokenUsageAnalyzer.js';
 
-const DEFAULT_MODEL = 'gpt-3.5-turbo';
+const DEFAULT_MODEL = 'gpt-4o-mini';
 const REQUEST_SETTINGS = {
   temperature: null,
   reasoningEffort: null,
@@ -42,15 +42,15 @@ export class LlmAgent {
     this.client = new OpenAI({ apiKey });
   }
 
-  async ask({ message: userInput, history = [] } = {}) {
+  async ask({ message: userInput, history = [], conversationHistoryInput = null } = {}) {
     const message = this.normalizeInput(userInput);
 
     if (!this.client) {
       throw new AgentConfigurationError('OPENAI_API_KEY is not configured');
     }
 
-    const modelInput = this.buildModelInput({ history, message });
-    const tokenReport = await this.buildTokenReport({ message, history });
+    const modelInput = this.buildModelInput({ history, message, conversationHistoryInput });
+    const tokenReport = await this.buildTokenReport({ message, history, conversationHistoryInput });
 
     if (tokenReport.context.status === 'overflow') {
       const details = {
@@ -123,24 +123,25 @@ export class LlmAgent {
     return userInput.trim();
   }
 
-  buildModelInput({ history, message }) {
+  buildModelInput({ history, message, conversationHistoryInput = null }) {
     return [
-      ...this.buildHistoryInput({ history }),
+      ...this.buildHistoryInput({ history, conversationHistoryInput }),
       ...this.buildCurrentInput({ message }),
     ];
   }
 
-  async buildTokenReport({ message: userInput, history = [] } = {}) {
+  async buildTokenReport({ message: userInput, history = [], conversationHistoryInput = null } = {}) {
     const message = this.normalizePreviewInput(userInput);
     const systemInput = this.buildSystemInput();
-    const conversationHistoryInput = this.buildConversationHistoryInput({ history });
-    const historyInput = [...systemInput, ...conversationHistoryInput];
+    const resolvedConversationHistoryInput =
+      conversationHistoryInput ?? this.buildConversationHistoryInput({ history });
+    const historyInput = [...systemInput, ...resolvedConversationHistoryInput];
     const currentInput = message ? this.buildCurrentInput({ message }) : [];
     const modelInput = [...historyInput, ...currentInput];
 
     return this.tokenUsageAnalyzer.buildTokenReport({
       systemInput,
-      conversationHistoryInput,
+      conversationHistoryInput: resolvedConversationHistoryInput,
       historyInput,
       currentInput,
       fullInput: modelInput,
@@ -158,10 +159,10 @@ export class LlmAgent {
     }));
   }
 
-  buildHistoryInput({ history }) {
+  buildHistoryInput({ history, conversationHistoryInput = null }) {
     return [
       ...this.buildSystemInput(),
-      ...this.buildConversationHistoryInput({ history }),
+      ...(conversationHistoryInput ?? this.buildConversationHistoryInput({ history })),
     ];
   }
 
