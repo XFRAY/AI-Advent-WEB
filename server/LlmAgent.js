@@ -1,10 +1,17 @@
 import OpenAI from 'openai';
+import {
+  TokenUsageAnalyzer,
+  buildCumulativeUsage,
+  buildUsageStats as buildTokenUsageStats,
+  estimateCost,
+} from './TokenUsageAnalyzer.js';
 
-const DEFAULT_MODEL = 'gpt-5';
+const DEFAULT_MODEL = 'gpt-3.5-turbo';
 const REQUEST_SETTINGS = {
   temperature: null,
   reasoningEffort: null,
   endpoint: 'Responses API',
+  truncation: 'disabled',
 };
 const SYSTEM_MESSAGE = {
   role: 'system',
@@ -12,36 +19,20 @@ const SYSTEM_MESSAGE = {
     'You are a helpful assistant inside a simple educational web agent. Answer clearly and concisely.',
 };
 
-const MODEL_PRICING_USD_PER_1M_TOKENS = {
-  'gpt-5': {
-    input: 1.25,
-    cachedInput: 0.125,
-    output: 10,
-  },
-  'gpt-5-chat-latest': {
-    input: 1.25,
-    cachedInput: 0.125,
-    output: 10,
-  },
-  'gpt-5-mini': {
-    input: 0.25,
-    cachedInput: 0.025,
-    output: 2,
-  },
-  'gpt-5-nano': {
-    input: 0.05,
-    cachedInput: 0.005,
-    output: 0.4,
-  },
-};
-
 export class AgentInputError extends Error {}
 export class AgentConfigurationError extends Error {}
 export class AgentApiError extends Error {}
+export class AgentContextOverflowError extends Error {
+  constructor(message, details = {}) {
+    super(message);
+    this.details = details;
+  }
+}
 
 export class LlmAgent {
   constructor({ apiKey, model = DEFAULT_MODEL } = {}) {
     this.model = model;
+    this.tokenUsageAnalyzer = new TokenUsageAnalyzer({ apiKey, model });
 
     if (!apiKey) {
       this.client = null;
@@ -58,22 +49,54 @@ export class LlmAgent {
       throw new AgentConfigurationError('OPENAI_API_KEY is not configured');
     }
 
+    const modelInput = this.buildModelInput({ history, message });
+    const tokenReport = await this.buildTokenReport({ message, history });
+
+    if (tokenReport.context.status === 'overflow') {
+      const details = {
+        contextWindow: tokenReport.context.contextWindow,
+        currentRequestTokens: tokenReport.currentRequestTokens,
+        fullInputTokens: tokenReport.fullInputTokens,
+        historyTokens: tokenReport.historyTokens,
+        remainingInputTokens: tokenReport.context.remainingInputTokens,
+      };
+
+      if (typeof tokenReport.systemInstructionTokens === 'number') {
+        details.systemInstructionTokens = tokenReport.systemInstructionTokens;
+      }
+
+      if (typeof tokenReport.conversationHistoryTokens === 'number') {
+        details.conversationHistoryTokens = tokenReport.conversationHistoryTokens;
+      }
+
+      throw new AgentContextOverflowError(
+        `Лимит модели превышен: следующий запрос занимает ${tokenReport.fullInputTokens} ток. при лимите ${tokenReport.context.contextWindow} ток. Очистите историю или сократите сообщение.`,
+        details,
+      );
+    }
+
     let response;
 
     try {
       response = await this.client.responses.create({
         model: this.model,
-        input: this.buildModelInput({ history, message }),
+        input: modelInput,
+        truncation: REQUEST_SETTINGS.truncation,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown LLM API error';
       throw new AgentApiError(`LLM API request failed: ${message}`);
     }
 
+    const usage = this.buildUsageStats(response.usage, tokenReport);
+
     return {
       answer: response.output_text?.trim() || 'Модель не вернула текстовый ответ.',
       model: this.model,
-      usage: this.buildUsageStats(response.usage),
+      usage: {
+        ...usage,
+        cumulative: buildCumulativeUsage({ history, currentUsage: usage }),
+      },
       settings: REQUEST_SETTINGS,
     };
   }
@@ -92,13 +115,58 @@ export class LlmAgent {
     return message;
   }
 
+  normalizePreviewInput(userInput = '') {
+    if (typeof userInput !== 'string') {
+      throw new AgentInputError('Message must be a string');
+    }
+
+    return userInput.trim();
+  }
+
   buildModelInput({ history, message }) {
     return [
-      SYSTEM_MESSAGE,
-      ...history.map((historyMessage) => ({
-        role: historyMessage.role === 'agent' ? 'assistant' : 'user',
-        content: historyMessage.text,
-      })),
+      ...this.buildHistoryInput({ history }),
+      ...this.buildCurrentInput({ message }),
+    ];
+  }
+
+  async buildTokenReport({ message: userInput, history = [] } = {}) {
+    const message = this.normalizePreviewInput(userInput);
+    const systemInput = this.buildSystemInput();
+    const conversationHistoryInput = this.buildConversationHistoryInput({ history });
+    const historyInput = [...systemInput, ...conversationHistoryInput];
+    const currentInput = message ? this.buildCurrentInput({ message }) : [];
+    const modelInput = [...historyInput, ...currentInput];
+
+    return this.tokenUsageAnalyzer.buildTokenReport({
+      systemInput,
+      conversationHistoryInput,
+      historyInput,
+      currentInput,
+      fullInput: modelInput,
+    });
+  }
+
+  buildSystemInput() {
+    return [SYSTEM_MESSAGE];
+  }
+
+  buildConversationHistoryInput({ history }) {
+    return history.map((historyMessage) => ({
+      role: historyMessage.role === 'agent' ? 'assistant' : 'user',
+      content: historyMessage.text,
+    }));
+  }
+
+  buildHistoryInput({ history }) {
+    return [
+      ...this.buildSystemInput(),
+      ...this.buildConversationHistoryInput({ history }),
+    ];
+  }
+
+  buildCurrentInput({ message }) {
+    return [
       {
         role: 'user',
         content: message,
@@ -106,52 +174,20 @@ export class LlmAgent {
     ];
   }
 
-  buildUsageStats(usage = {}) {
-    const inputTokens = usage.input_tokens ?? 0;
-    const outputTokens = usage.output_tokens ?? 0;
-    const totalTokens = usage.total_tokens ?? inputTokens + outputTokens;
-    const cachedInputTokens = usage.input_tokens_details?.cached_tokens ?? 0;
-    const reasoningTokens = usage.output_tokens_details?.reasoning_tokens ?? 0;
-    const cost = this.estimateCost({
+  buildUsageStats(usage = {}, tokenReport) {
+    return buildTokenUsageStats({
+      model: this.model,
+      responseUsage: usage,
+      tokenReport,
+    });
+  }
+
+  estimateCost({ inputTokens, cachedInputTokens, outputTokens }) {
+    return estimateCost({
+      model: this.model,
       inputTokens,
       cachedInputTokens,
       outputTokens,
     });
-
-    return {
-      inputTokens,
-      cachedInputTokens,
-      outputTokens,
-      reasoningTokens,
-      totalTokens,
-      cost,
-    };
-  }
-
-  estimateCost({ inputTokens, cachedInputTokens, outputTokens }) {
-    const pricing = MODEL_PRICING_USD_PER_1M_TOKENS[this.model];
-
-    if (!pricing) {
-      return {
-        estimatedUsd: null,
-        note: 'Нет локальной таблицы цен для этой модели.',
-      };
-    }
-
-    const billableInputTokens = Math.max(inputTokens - cachedInputTokens, 0);
-    const estimatedUsd =
-      (billableInputTokens * pricing.input +
-        cachedInputTokens * pricing.cachedInput +
-        outputTokens * pricing.output) /
-      1_000_000;
-
-    return {
-      estimatedUsd,
-      currency: 'USD',
-      inputPerMillion: pricing.input,
-      cachedInputPerMillion: pricing.cachedInput,
-      outputPerMillion: pricing.output,
-      note: 'Примерная стоимость без учета налогов, скидок, Batch API и других условий аккаунта.',
-    };
   }
 }
