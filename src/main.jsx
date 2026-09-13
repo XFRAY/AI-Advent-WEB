@@ -1,14 +1,17 @@
+import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded';
+import BookmarkAddRoundedIcon from '@mui/icons-material/BookmarkAddRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
+import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
 import MemoryRoundedIcon from '@mui/icons-material/MemoryRounded';
 import SendRoundedIcon from '@mui/icons-material/SendRounded';
-import SettingsSuggestRoundedIcon from '@mui/icons-material/SettingsSuggestRounded';
+import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
+import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
 import {
   Alert,
   Box,
   Button,
   CircularProgress,
   CssBaseline,
-  Divider,
   IconButton,
   LinearProgress,
   Paper,
@@ -24,22 +27,39 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const DEFAULT_MODEL_CONTEXT_LIMIT = 128_000;
-const DEFAULT_COMPRESSION = {
+const DEFAULT_SETTINGS = {
   lastMessagesCount: 6,
-  summaryBatchSize: 10,
 };
-const FULL_ACCENT = '#0f6b5f';
-const COMPRESSED_ACCENT = '#c45f3d';
+const STRATEGY_ACCENTS = {
+  sliding: '#0f6b5f',
+  facts: '#8a5a00',
+  branching: '#3559a6',
+};
 const INK = '#17201e';
-const welcomeFullMessage = {
-  id: 'welcome-full',
-  role: 'agent',
-  text: 'Я отвечаю с полной историей. Токены будут расти быстро.',
+const FACT_LABELS = {
+  goal: 'Цель',
+  constraints: 'Ограничения',
+  preferences: 'Предпочтения',
+  decisions: 'Решения',
+  openQuestions: 'Открытые вопросы',
+  agreements: 'Договоренности',
 };
-const welcomeCompressedMessage = {
-  id: 'welcome-compressed',
-  role: 'agent',
-  text: 'Я отвечаю с summary старой истории и последними сообщениями как есть.',
+const welcomeMessages = {
+  sliding: {
+    id: 'welcome-sliding',
+    role: 'agent',
+    text: 'Я вижу только последние N сообщений. Ранние детали исчезают физически.',
+  },
+  facts: {
+    id: 'welcome-facts',
+    role: 'agent',
+    text: 'Я вижу facts-блок и последние N сообщений. Договоренности живут отдельно.',
+  },
+  branching: {
+    id: 'welcome-branching',
+    role: 'agent',
+    text: 'Я веду активную ветку. Сделайте checkpoint, чтобы разойтись в A/B.',
+  },
 };
 
 const theme = createTheme({
@@ -49,14 +69,11 @@ const theme = createTheme({
       paper: '#ffffff',
     },
     primary: {
-      main: FULL_ACCENT,
-    },
-    secondary: {
-      main: COMPRESSED_ACCENT,
+      main: STRATEGY_ACCENTS.sliding,
     },
     text: {
       primary: INK,
-      secondary: '#66706d',
+      secondary: '#65716d',
     },
     error: {
       main: '#b94747',
@@ -70,23 +87,23 @@ const theme = createTheme({
       'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     fontSize: 16,
     h1: {
-      fontSize: 'clamp(1.45rem, 2vw, 2.2rem)',
+      fontSize: 'clamp(1.35rem, 2vw, 2.05rem)',
       fontWeight: 780,
       letterSpacing: 0,
-      lineHeight: 1.05,
+      lineHeight: 1.08,
     },
     h2: {
-      fontSize: '1rem',
+      fontSize: '0.98rem',
       fontWeight: 780,
       letterSpacing: 0,
       lineHeight: 1.2,
     },
     body2: {
-      fontSize: '0.94rem',
-      lineHeight: 1.55,
+      fontSize: '0.92rem',
+      lineHeight: 1.5,
     },
     caption: {
-      fontSize: '0.8rem',
+      fontSize: '0.79rem',
       letterSpacing: 0,
       lineHeight: 1.35,
     },
@@ -100,21 +117,9 @@ const theme = createTheme({
         root: {
           borderRadius: 8,
           fontWeight: 740,
-          minHeight: 42,
+          minHeight: 40,
           textTransform: 'none',
           whiteSpace: 'nowrap',
-        },
-        contained: {
-          background: FULL_ACCENT,
-          boxShadow: '0 14px 28px rgba(15, 107, 95, 0.18)',
-          '&:hover': {
-            background: '#0b5b51',
-            boxShadow: '0 16px 32px rgba(15, 107, 95, 0.22)',
-          },
-          '&.Mui-disabled': {
-            background: 'rgba(24, 32, 31, 0.08)',
-            boxShadow: 'none',
-          },
         },
       },
     },
@@ -147,37 +152,38 @@ const theme = createTheme({
 });
 
 function App() {
-  const [fullMessages, setFullMessages] = useState([welcomeFullMessage]);
-  const [compressedMessages, setCompressedMessages] = useState([welcomeCompressedMessage]);
-  const [summary, setSummary] = useState(null);
-  const [compression, setCompression] = useState(DEFAULT_COMPRESSION);
+  const [messages, setMessages] = useState({
+    sliding: [welcomeMessages.sliding],
+    facts: [welcomeMessages.facts],
+    branching: [welcomeMessages.branching],
+  });
+  const [facts, setFacts] = useState({});
+  const [branchingState, setBranchingState] = useState({
+    activeBranchId: 'main',
+    checkpointAt: null,
+    checkpointMessageCount: 0,
+    branchLabels: {
+      main: 'Main',
+      A: 'Branch A',
+      B: 'Branch B',
+    },
+  });
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [modelName, setModelName] = useState('gpt-4o-mini');
   const [modelContextLimit, setModelContextLimit] = useState(DEFAULT_MODEL_CONTEXT_LIMIT);
   const [input, setInput] = useState('');
-  const [error, setError] = useState('');
   const [preview, setPreview] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
   const [isBooting, setIsBooting] = useState(true);
-  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
-  const [lastComparison, setLastComparison] = useState(null);
   const inputRef = useRef(null);
-  const hasSavedMessages =
-    hasRealMessages(fullMessages, welcomeFullMessage.id) ||
-    hasRealMessages(compressedMessages, welcomeCompressedMessage.id);
-
-  const fullLatestUsage = useMemo(() => findLatestUsage(fullMessages), [fullMessages]);
-  const compressedLatestUsage = useMemo(
-    () => findLatestUsage(compressedMessages),
-    [compressedMessages],
+  const hasSavedMessages = Object.entries(messages).some(([strategy, strategyMessages]) =>
+    hasRealMessages(strategyMessages, welcomeMessages[strategy].id),
   );
-  const activeComparison = preview?.comparison ?? lastComparison;
-  const fullPreviewReport = preview?.full?.tokenReport ?? fullLatestUsage?.tokenReport;
-  const compressedPreviewReport =
-    preview?.compressed?.tokenReport ?? compressedLatestUsage?.tokenReport;
-  const isOverflow =
-    fullPreviewReport?.context?.status === 'overflow' ||
-    compressedPreviewReport?.context?.status === 'overflow';
+  const isOverflow = Object.values(preview ?? {}).some(
+    (item) => item?.tokenReport?.context?.status === 'overflow',
+  );
   const canSend =
     input.trim().length > 0 &&
     !isLoading &&
@@ -198,40 +204,31 @@ function App() {
         const configData = await configResponse.json().catch(() => ({}));
 
         if (!messagesResponse.ok) {
-          throw new Error(messagesData.error || 'Не удалось загрузить историю.');
+          throw new Error(messagesData.error || 'Не удалось загрузить истории.');
         }
 
         if (!isMounted) {
           return;
         }
 
-        const savedFullMessages = Array.isArray(messagesData.fullMessages)
-          ? messagesData.fullMessages
-          : [];
-        const savedCompressedMessages = Array.isArray(messagesData.compressedMessages)
-          ? messagesData.compressedMessages
-          : [];
-
-        setFullMessages(savedFullMessages.length > 0 ? savedFullMessages : [welcomeFullMessage]);
-        setCompressedMessages(
-          savedCompressedMessages.length > 0
-            ? savedCompressedMessages
-            : [welcomeCompressedMessage],
-        );
-        setSummary(messagesData.summary ?? null);
+        setMessages({
+          sliding: withWelcome(messagesData.slidingMessages, welcomeMessages.sliding),
+          facts: withWelcome(messagesData.factsMessages, welcomeMessages.facts),
+          branching: withWelcome(messagesData.branchingMessages, welcomeMessages.branching),
+        });
+        setFacts(messagesData.facts ?? {});
+        setBranchingState(messagesData.branchingState ?? branchingState);
         setModelName(configResponse.ok && configData.model ? configData.model : 'gpt-4o-mini');
         setModelContextLimit(
           configResponse.ok && Number.isInteger(configData.modelContextWindow)
             ? configData.modelContextWindow
             : DEFAULT_MODEL_CONTEXT_LIMIT,
         );
-        if (configResponse.ok && configData.compressionDefaults) {
-          setCompression(configData.compressionDefaults);
+        if (configResponse.ok && configData.strategyDefaults) {
+          setSettings(configData.strategyDefaults);
         }
       } catch (requestError) {
-        setError(
-          formatRequestError(requestError, 'Не удалось загрузить историю.'),
-        );
+        setError(formatRequestError(requestError, 'Не удалось загрузить истории.'));
       } finally {
         if (isMounted) {
           setIsBooting(false);
@@ -249,14 +246,12 @@ function App() {
   useEffect(() => {
     if (isBooting || isResetting) {
       setPreview(null);
-      setIsPreviewLoading(false);
       return undefined;
     }
 
     const controller = new AbortController();
     const message = input.trim();
 
-    setIsPreviewLoading(true);
     const timeoutId = window.setTimeout(async () => {
       try {
         const response = await fetch('/api/context-preview', {
@@ -264,7 +259,7 @@ function App() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ message, compression }),
+          body: JSON.stringify({ message, settings }),
           signal: controller.signal,
         });
         const data = await response.json().catch(() => ({}));
@@ -278,10 +273,6 @@ function App() {
         if (requestError?.name !== 'AbortError') {
           setPreview(null);
         }
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsPreviewLoading(false);
-        }
       }
     }, 300);
 
@@ -290,13 +281,14 @@ function App() {
       window.clearTimeout(timeoutId);
     };
   }, [
-    compression.lastMessagesCount,
-    compression.summaryBatchSize,
-    compressedMessages.length,
-    fullMessages.length,
     input,
     isBooting,
     isResetting,
+    messages.sliding.length,
+    messages.facts.length,
+    messages.branching.length,
+    settings.lastMessagesCount,
+    branchingState.activeBranchId,
   ]);
 
   async function handleSubmit(event) {
@@ -307,27 +299,9 @@ function App() {
       return;
     }
 
-    const optimisticFullUser = {
-      id: crypto.randomUUID(),
-      mode: 'full',
-      role: 'user',
-      text,
-    };
-    const optimisticCompressedUser = {
-      id: crypto.randomUUID(),
-      mode: 'compressed',
-      role: 'user',
-      text,
-    };
-
     setError('');
     setInput('');
     setIsLoading(true);
-    setFullMessages((messages) => [...removeWelcome(messages, welcomeFullMessage.id), optimisticFullUser]);
-    setCompressedMessages((messages) => [
-      ...removeWelcome(messages, welcomeCompressedMessage.id),
-      optimisticCompressedUser,
-    ]);
 
     try {
       const response = await fetch('/api/chat/compare', {
@@ -335,25 +309,21 @@ function App() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ message: text, compression }),
+        body: JSON.stringify({ message: text, settings }),
       });
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.error || 'Не удалось получить ответы агентов.');
+        throw new Error(data.error || 'Не удалось получить ответы стратегий.');
       }
 
-      setFullMessages((messages) => [
-        ...replaceMessage(messages, optimisticFullUser.id, data.full?.userMessage),
-        data.full?.agentMessage ?? buildFallbackAgentMessage(data.full?.answer, data.full),
-      ]);
-      setCompressedMessages((messages) => [
-        ...replaceMessage(messages, optimisticCompressedUser.id, data.compressed?.userMessage),
-        data.compressed?.agentMessage ??
-          buildFallbackAgentMessage(data.compressed?.answer, data.compressed),
-      ]);
-      setSummary(data.compressed?.summary ?? summary);
-      setLastComparison(data.comparison ?? null);
+      setMessages({
+        sliding: withWelcome(data.sliding?.messages, welcomeMessages.sliding),
+        facts: withWelcome(data.facts?.messages, welcomeMessages.facts),
+        branching: withWelcome(data.branching?.messages, welcomeMessages.branching),
+      });
+      setFacts(data.facts?.facts ?? facts);
+      setBranchingState(data.branching?.branchingState ?? branchingState);
       setPreview(null);
     } catch (requestError) {
       setError(formatRequestError(requestError, 'Произошла неизвестная ошибка.'));
@@ -378,24 +348,91 @@ function App() {
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.error || 'Не удалось очистить историю.');
+        throw new Error(data.error || 'Не удалось очистить истории.');
       }
 
-      setFullMessages([welcomeFullMessage]);
-      setCompressedMessages([welcomeCompressedMessage]);
-      setSummary(null);
+      setMessages({
+        sliding: [welcomeMessages.sliding],
+        facts: [welcomeMessages.facts],
+        branching: [welcomeMessages.branching],
+      });
+      setFacts(data.facts ?? {});
+      setBranchingState(data.branchingState ?? branchingState);
       setPreview(null);
-      setLastComparison(null);
     } catch (requestError) {
-      setError(formatRequestError(requestError, 'Не удалось очистить историю.'));
+      setError(formatRequestError(requestError, 'Не удалось очистить истории.'));
     } finally {
       setIsResetting(false);
       inputRef.current?.focus();
     }
   }
 
-  function updateCompression(key, value) {
-    setCompression((current) => ({
+  async function handleCheckpoint() {
+    if (isLoading || isBooting || isResetting) {
+      return;
+    }
+
+    setError('');
+    setIsLoading(true);
+
+    try {
+      const response = await fetch('/api/branching/checkpoint', {
+        method: 'POST',
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Не удалось создать checkpoint.');
+      }
+
+      setBranchingState(data.branchingState ?? branchingState);
+      setMessages((current) => ({
+        ...current,
+        branching: withWelcome(data.branchingMessages, welcomeMessages.branching),
+      }));
+    } catch (requestError) {
+      setError(formatRequestError(requestError, 'Не удалось создать checkpoint.'));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleSwitchBranch(branchId) {
+    if (isLoading || isBooting || isResetting || branchId === branchingState.activeBranchId) {
+      return;
+    }
+
+    setError('');
+    setIsLoading(true);
+
+    try {
+      const response = await fetch('/api/branching/active-branch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ branchId }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Не удалось переключить ветку.');
+      }
+
+      setBranchingState(data.branchingState ?? branchingState);
+      setMessages((current) => ({
+        ...current,
+        branching: withWelcome(data.branchingMessages, welcomeMessages.branching),
+      }));
+    } catch (requestError) {
+      setError(formatRequestError(requestError, 'Не удалось переключить ветку.'));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  function updateSettings(key, value) {
+    setSettings((current) => ({
       ...current,
       [key]: value,
     }));
@@ -408,7 +445,7 @@ function App() {
         component="main"
         sx={{
           background:
-            'linear-gradient(118deg, rgba(15, 107, 95, 0.18) 0%, rgba(15, 107, 95, 0.06) 36%, rgba(196, 95, 61, 0.15) 72%, rgba(42, 68, 82, 0.12) 100%), #eef3f1',
+            'linear-gradient(118deg, rgba(15, 107, 95, 0.15) 0%, rgba(238, 243, 241, 0.96) 38%, rgba(138, 90, 0, 0.12) 70%, rgba(53, 89, 166, 0.13) 100%), #eef3f1',
           minHeight: '100vh',
           p: { xs: 1, md: 2 },
         }}
@@ -419,57 +456,52 @@ function App() {
             gap: 1.25,
             gridTemplateRows: 'auto minmax(0, 1fr) auto',
             height: { xs: 'auto', xl: 'calc(100vh - 32px)' },
-            maxWidth: 1500,
-            mx: 'auto',
+            maxWidth: 1760,
             minHeight: { xs: '100vh', xl: 0 },
+            mx: 'auto',
           }}
         >
           <Paper
             component="header"
             elevation={0}
             sx={{
-              background: 'linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(241,248,246,0.94) 45%, rgba(255,246,241,0.95) 100%)',
+              background: 'rgba(255, 255, 255, 0.96)',
               border: '1px solid rgba(24, 32, 31, 0.12)',
               borderRadius: 2,
-              display: 'grid',
-              gap: 1.25,
-              gridTemplateColumns: { xs: '1fr', lg: 'minmax(230px, 0.42fr) minmax(0, 1.58fr)' },
-              p: { xs: 1.2, md: 1.5 },
+              display: 'flex',
+              gap: 1,
+              p: { xs: 1, md: 1 },
+              alignItems: 'center',
+              justifyContent: 'space-between',
             }}
           >
-            <Stack spacing={1}>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-                <Box
-                  sx={{
-                    alignItems: 'center',
-                    background: INK,
-                    borderRadius: 1.2,
-                    color: '#fff8ef',
-                    display: 'inline-flex',
-                    fontSize: '0.84rem',
-                    fontWeight: 780,
-                    gap: 0.7,
-                    lineHeight: 1,
-                    px: 1,
-                    py: 0.75,
-                  }}
-                >
-                  <MemoryRoundedIcon sx={{ fontSize: 18 }} />
-                  AI Advent · День 9
-                </Box>
-                <Typography color="text.secondary" variant="caption">
-                  {modelName} · окно {formatNumber(modelContextLimit)} ток.
-                </Typography>
-              </Stack>
-            </Stack>
-
-            <Stack
-              direction={{ xs: 'column', sm: 'row' }}
-              spacing={1}
-              sx={{ minWidth: 0 }}
-            >
-              <TokenComparison comparison={activeComparison} />
-              <SummaryStatus summary={summary} />
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+              <Box
+                sx={{
+                  alignItems: 'center',
+                  background: INK,
+                  borderRadius: 1.2,
+                  color: '#fff8ef',
+                  display: 'inline-flex',
+                  fontSize: '0.84rem',
+                  fontWeight: 780,
+                  gap: 0.7,
+                  lineHeight: 1,
+                  px: 1,
+                  py: 0.75,
+                }}
+              >
+                <MemoryRoundedIcon sx={{ fontSize: 18 }} />
+                AI Advent · День 10
+              </Box>
+              <Typography color="text.secondary" variant="caption">
+                {modelName} · окно {formatNumber(modelContextLimit)} ток.
+              </Typography>
+              <SharedWindowControl
+                disabled={isLoading || isBooting || isResetting}
+                onChange={updateSettings}
+                settings={settings}
+              />
             </Stack>
           </Paper>
 
@@ -477,39 +509,54 @@ function App() {
             sx={{
               display: 'grid',
               gap: 1.25,
-              gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' },
+              gridTemplateColumns: { xs: '1fr', xl: 'repeat(3, minmax(0, 1fr))' },
               minHeight: 0,
             }}
           >
-            <ChatPanel
-              accent={FULL_ACCENT}
-              headerBackground="linear-gradient(135deg, rgba(15, 107, 95, 0.13) 0%, rgba(255, 255, 255, 0.86) 72%)"
+            <StrategyPanel
+              accent={STRATEGY_ACCENTS.sliding}
+              icon={<TuneRoundedIcon />}
               isBooting={isBooting}
               isLoading={isLoading}
-              messages={fullMessages}
-              previewReport={fullPreviewReport}
-              title="Без сжатия"
-              subtitle="В модель уходит вся история диалога"
-              welcomeId={welcomeFullMessage.id}
+              messages={messages.sliding}
+              previewReport={preview?.sliding?.tokenReport}
+              stats={preview?.sliding?.stats}
+              subtitle={`Хранит только последние ${settings.lastMessagesCount} сообщений`}
+              title="Sliding Window"
+              welcomeId={welcomeMessages.sliding.id}
             />
-            <ChatPanel
-              accent={COMPRESSED_ACCENT}
-              headerBackground="linear-gradient(135deg, rgba(196, 95, 61, 0.15) 0%, rgba(255, 255, 255, 0.86) 72%)"
-              compressionStats={preview?.compressed?.compressionStats}
+            <StrategyPanel
+              accent={STRATEGY_ACCENTS.facts}
+              extraHeader={<FactsBlock facts={facts} />}
+              icon={<FactCheckRoundedIcon />}
               isBooting={isBooting}
               isLoading={isLoading}
-              messages={compressedMessages}
-              previewReport={compressedPreviewReport}
-              title="Со сжатием"
-              subtitle={`Summary + последние ${compression.lastMessagesCount} сообщений`}
-              welcomeId={welcomeCompressedMessage.id}
+              messages={messages.facts}
+              previewReport={preview?.facts?.tokenReport}
+              stats={preview?.facts?.stats}
+              subtitle={`Facts + последние ${settings.lastMessagesCount} сообщений`}
+              title="Sticky Facts"
+              welcomeId={welcomeMessages.facts.id}
+            />
+            <StrategyPanel
+              accent={STRATEGY_ACCENTS.branching}
               extraHeader={
-                <CompressionControls
-                  compression={compression}
+                <BranchControls
+                  branchingState={branchingState}
                   disabled={isLoading || isBooting || isResetting}
-                  onChange={updateCompression}
+                  onCheckpoint={handleCheckpoint}
+                  onSwitchBranch={handleSwitchBranch}
                 />
               }
+              icon={<AccountTreeRoundedIcon />}
+              isBooting={isBooting}
+              isLoading={isLoading}
+              messages={messages.branching}
+              previewReport={preview?.branching?.tokenReport}
+              stats={preview?.branching?.stats}
+              subtitle={`Активная ветка: ${branchingState.activeBranchId}`}
+              title="Branching"
+              welcomeId={welcomeMessages.branching.id}
             />
           </Box>
 
@@ -522,12 +569,12 @@ function App() {
               border: '1px solid rgba(24, 32, 31, 0.12)',
               borderRadius: 2,
               display: 'grid',
-              gap: 1,
+              gap: 0.65,
               gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) auto' },
-              p: { xs: 1, md: 1.25 },
+              p: { xs: 0.65, md: 0.75 },
             }}
           >
-            <Stack spacing={1}>
+            <Stack spacing={0.65}>
               {error && (
                 <Alert severity="error" sx={{ borderRadius: 1.5 }}>
                   {error}
@@ -535,7 +582,7 @@ function App() {
               )}
               {isOverflow && !error && (
                 <Alert severity="warning" sx={{ borderRadius: 1.5 }}>
-                  Следующий запрос превышает лимит контекста в одном из режимов.
+                  Следующий запрос превышает лимит контекста в одной из стратегий.
                 </Alert>
               )}
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
@@ -543,14 +590,19 @@ function App() {
                   disabled={isLoading || isBooting || isResetting}
                   fullWidth
                   inputRef={inputRef}
-                  maxRows={5}
-                  minRows={2}
+                  maxRows={3}
+                  minRows={1}
                   multiline
                   onChange={(event) => {
                     setInput(event.target.value);
                     setError('');
                   }}
-                  placeholder="Один запрос уйдет сразу в оба чата"
+                  placeholder="Один запрос уйдет в Sliding, Facts и активную Branching-ветку"
+                  sx={{
+                    '& .MuiOutlinedInput-input': {
+                      py: 0.65,
+                    },
+                  }}
                   value={input}
                 />
                 <Button
@@ -558,34 +610,34 @@ function App() {
                   endIcon={isLoading ? <CircularProgress color="inherit" size={16} /> : <SendRoundedIcon />}
                   sx={{
                     alignSelf: 'stretch',
-                    background: FULL_ACCENT,
+                    background: STRATEGY_ACCENTS.sliding,
+                    minHeight: { xs: 40, sm: 42 },
+                    minWidth: { xs: '100%', sm: 150 },
                     '&:hover': {
                       background: '#0b5b51',
                     },
-                    minHeight: { xs: 48, sm: 68 },
-                    minWidth: { xs: '100%', sm: 140 },
                   }}
                   type="submit"
                   variant="contained"
                 >
-                  {isLoading ? 'Жду ответ' : 'Отправить'}
+                  {isLoading ? 'Жду ответы' : 'Отправить'}
                 </Button>
               </Stack>
             </Stack>
 
             <Box sx={{ alignSelf: 'end', justifySelf: { xs: 'start', lg: 'end' } }}>
-              <Tooltip title="Очистить обе истории и summary">
+              <Tooltip title="Очистить все стратегии, facts и ветки">
                 <span>
                   <IconButton
-                    aria-label="Очистить историю"
+                    aria-label="Очистить истории"
                     color="error"
                     disabled={isLoading || isBooting || isResetting || !hasSavedMessages}
                     onClick={handleReset}
                     sx={{
                       background: 'rgba(185, 71, 71, 0.08)',
                       border: '1px solid rgba(185, 71, 71, 0.18)',
-                      height: 42,
-                      width: 42,
+                      height: 36,
+                      width: 36,
                     }}
                   >
                     <DeleteOutlineRoundedIcon fontSize="small" />
@@ -600,22 +652,22 @@ function App() {
   );
 }
 
-function ChatPanel({
+function StrategyPanel({
   accent,
-  compressionStats = null,
   extraHeader = null,
-  headerBackground,
+  icon,
   isBooting,
   isLoading,
   messages,
   previewReport,
+  stats,
   subtitle,
   title,
   welcomeId,
 }) {
   const scrollRef = useRef(null);
+  const latestUsage = useMemo(() => findLatestUsage(messages), [messages]);
   const realMessages = removeWelcome(messages, welcomeId);
-  const latestUsage = findLatestUsage(messages);
 
   useLayoutEffect(() => {
     const node = scrollRef.current;
@@ -641,14 +693,14 @@ function ChatPanel({
         boxShadow: '0 20px 56px rgba(24, 32, 31, 0.1)',
         display: 'grid',
         gridTemplateRows: 'auto auto minmax(0, 1fr)',
-        minHeight: { xs: 560, lg: 0 },
+        minHeight: { xs: 560, xl: 0 },
         overflow: 'hidden',
       }}
     >
       <Box
         component="header"
         sx={{
-          background: headerBackground,
+          background: `linear-gradient(135deg, ${withAlpha(accent, 0.14)} 0%, rgba(255,255,255,0.9) 72%)`,
           borderBottom: '1px solid rgba(24, 32, 31, 0.1)',
           display: 'grid',
           gap: 0.8,
@@ -656,10 +708,13 @@ function ChatPanel({
         }}
       >
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-          <Stack spacing={0.2}>
-            <Typography component="h2" sx={{ color: accent }} variant="h2">
-              {title}
-            </Typography>
+          <Stack spacing={0.2} sx={{ minWidth: 0 }}>
+            <Stack direction="row" spacing={0.7} sx={{ alignItems: 'center' }}>
+              <Box sx={{ color: accent, display: 'inline-flex' }}>{icon}</Box>
+              <Typography component="h2" sx={{ color: accent }} variant="h2">
+                {title}
+              </Typography>
+            </Stack>
             <Typography color="text.secondary" variant="caption">
               {subtitle}
             </Typography>
@@ -677,12 +732,12 @@ function ChatPanel({
         <ContextMeter accent={accent} latestUsage={latestUsage} previewReport={previewReport} />
       </Box>
 
-      {compressionStats && (
+      {stats && (
         <Stack
           direction="row"
           spacing={1}
           sx={{
-            background: 'rgba(196, 95, 61, 0.1)',
+            background: withAlpha(accent, 0.08),
             borderBottom: '1px solid rgba(24, 32, 31, 0.08)',
             flexWrap: 'wrap',
             gap: 0.8,
@@ -690,9 +745,11 @@ function ChatPanel({
             py: 0.8,
           }}
         >
-          <TinyStat label="Дословно в запросе" value={formatNumber(compressionStats.rawRecentMessageCount)} />
-          <TinyStat label="Символов summary" value={formatNumber(compressionStats.summaryCharacters)} />
-          <TinyStat label="Ждут batch" value={formatNumber(compressionStats.pendingSummaryMessageCount)} />
+          <TinyStat label="В запросе" value={formatNumber(stats.sentMessageCount)} />
+          <TinyStat label="Отброшено" value={formatNumber(stats.droppedMessageCount)} />
+          {stats.factsCharacters > 0 && (
+            <TinyStat label="Facts" value={`${formatNumber(stats.factsCharacters)} симв.`} />
+          )}
         </Stack>
       )}
 
@@ -710,6 +767,7 @@ function ChatPanel({
       >
         {messages.map((message, index) => (
           <MessageBubble
+            accent={accent}
             key={message.id}
             message={message}
             requestTokens={findRequestTokensForMessage(messages, index)}
@@ -717,6 +775,7 @@ function ChatPanel({
         ))}
         {isLoading && (
           <MessageBubble
+            accent={accent}
             isLoading
             message={{
               id: `${title}-loading`,
@@ -727,6 +786,7 @@ function ChatPanel({
         )}
         {isBooting && (
           <MessageBubble
+            accent={accent}
             isLoading
             message={{
               id: `${title}-booting`,
@@ -737,7 +797,7 @@ function ChatPanel({
         )}
         {realMessages.length === 0 && !isBooting && (
           <Typography color="text.secondary" sx={{ px: 0.5 }} variant="caption">
-            Начните диалог, чтобы увидеть отличие в расходе токенов.
+            Начните диалог, чтобы увидеть поведение стратегии.
           </Typography>
         )}
       </Box>
@@ -745,73 +805,115 @@ function ChatPanel({
   );
 }
 
-function CompressionControls({ compression, disabled, onChange }) {
+function SharedWindowControl({ disabled, onChange, settings }) {
   return (
     <Box
       sx={{
-        background: 'linear-gradient(135deg, rgba(196, 95, 61, 0.1) 0%, rgba(255,255,255,0.9) 70%)',
+        alignItems: 'center',
         border: '1px solid rgba(24, 32, 31, 0.1)',
         borderRadius: 1.5,
-        p: 1,
+        display: 'grid',
+        gap: 0.7,
+        gridTemplateColumns: { xs: '1fr', sm: 'auto 78px' },
+        minWidth: { xs: '100%', sm: 270 },
+        p: 0.65,
       }}
     >
-      <Stack direction="row" spacing={0.8} sx={{ alignItems: 'center', mb: 1 }}>
-        <SettingsSuggestRoundedIcon sx={{ color: COMPRESSED_ACCENT, fontSize: 18 }} />
+      <Stack direction="row" spacing={0.7} sx={{ alignItems: 'center' }}>
+        <TuneRoundedIcon sx={{ color: STRATEGY_ACCENTS.sliding, fontSize: 18 }} />
         <Typography color="text.secondary" fontWeight={780} variant="caption">
-          Как сжимать правый чат
+          Окно Sliding + Facts
         </Typography>
       </Stack>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-        <CompressionNumberField
-          description="Столько последних сообщений останется в запросе без изменений."
-          disabled={disabled}
-          label="Оставлять дословно"
-          max={30}
-          min={2}
-          onChange={(event) => onChange('lastMessagesCount', Number(event.target.value))}
-          value={compression.lastMessagesCount}
-        />
-        <CompressionNumberField
-          description="Когда накопится столько старых сообщений, они свернутся в summary."
-          disabled={disabled}
-          label="Обновлять summary каждые"
-          max={50}
-          min={2}
-          onChange={(event) => onChange('summaryBatchSize', Number(event.target.value))}
-          value={compression.summaryBatchSize}
-        />
-      </Stack>
+      <TextField
+        disabled={disabled}
+        fullWidth
+        inputProps={{ 'aria-label': 'Окно Sliding + Facts', max: 30, min: 2, step: 1 }}
+        onChange={(event) => onChange('lastMessagesCount', Number(event.target.value))}
+        sx={{
+          '& .MuiOutlinedInput-input': {
+            py: 0.65,
+          },
+        }}
+        type="number"
+        value={settings.lastMessagesCount}
+      />
     </Box>
   );
 }
 
-function CompressionNumberField({ description, disabled, label, max, min, onChange, value }) {
+function FactsBlock({ facts }) {
   return (
-    <Stack spacing={0.45} sx={{ flex: 1, minWidth: 0 }}>
-      <Typography
-        color="text.secondary"
-        component="label"
-        sx={{ fontSize: '0.78rem', fontWeight: 720, lineHeight: 1.2 }}
-      >
-        {label}
+    <Box
+      sx={{
+        background: 'rgba(255,255,255,0.72)',
+        border: '1px solid rgba(24, 32, 31, 0.1)',
+        borderRadius: 1.5,
+        display: 'grid',
+        gap: 0.45,
+        maxHeight: 154,
+        overflowY: 'auto',
+        p: 0.9,
+      }}
+    >
+      {Object.entries(FACT_LABELS).map(([key, label]) => (
+        <Typography key={key} sx={{ overflowWrap: 'anywhere' }} variant="caption">
+          <Box component="span" sx={{ color: STRATEGY_ACCENTS.facts, fontWeight: 780 }}>
+            {label}:
+          </Box>{' '}
+          {facts?.[key] || '—'}
+        </Typography>
+      ))}
+    </Box>
+  );
+}
+
+function BranchControls({ branchingState, disabled, onCheckpoint, onSwitchBranch }) {
+  const hasCheckpoint = Boolean(branchingState.checkpointAt);
+
+  return (
+    <Box
+      sx={{
+        background: 'rgba(255,255,255,0.72)',
+        border: '1px solid rgba(24, 32, 31, 0.1)',
+        borderRadius: 1.5,
+        display: 'grid',
+        gap: 0.8,
+        p: 0.9,
+      }}
+    >
+      <Stack direction="row" spacing={0.8} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+        <Button
+          disabled={disabled}
+          onClick={onCheckpoint}
+          startIcon={<BookmarkAddRoundedIcon />}
+          variant="outlined"
+        >
+          Checkpoint
+        </Button>
+        <Button
+          disabled={disabled || !hasCheckpoint || branchingState.activeBranchId === 'A'}
+          onClick={() => onSwitchBranch('A')}
+          startIcon={<SwapHorizRoundedIcon />}
+          variant={branchingState.activeBranchId === 'A' ? 'contained' : 'outlined'}
+        >
+          A
+        </Button>
+        <Button
+          disabled={disabled || !hasCheckpoint || branchingState.activeBranchId === 'B'}
+          onClick={() => onSwitchBranch('B')}
+          startIcon={<SwapHorizRoundedIcon />}
+          variant={branchingState.activeBranchId === 'B' ? 'contained' : 'outlined'}
+        >
+          B
+        </Button>
+      </Stack>
+      <Typography color="text.secondary" variant="caption">
+        {hasCheckpoint
+          ? `Checkpoint: ${branchingState.checkpointMessageCount} сообщ., ${formatDateTime(branchingState.checkpointAt)}`
+          : 'Checkpoint еще не создан.'}
       </Typography>
-      <TextField
-        disabled={disabled}
-        fullWidth
-        inputProps={{ 'aria-label': label, max, min, step: 1 }}
-        onChange={onChange}
-        sx={{
-          '& .MuiOutlinedInput-input': {
-            py: 0.9,
-          },
-        }}
-        type="number"
-        value={value}
-      />
-      <Typography color="text.secondary" sx={{ fontSize: '0.76rem', lineHeight: 1.25 }}>
-        {description}
-      </Typography>
-    </Stack>
+    </Box>
   );
 }
 
@@ -848,7 +950,7 @@ function ContextMeter({ accent, latestUsage, previewReport }) {
   );
 }
 
-function MessageBubble({ message, isLoading = false, requestTokens = null }) {
+function MessageBubble({ accent, message, isLoading = false, requestTokens = null }) {
   const isUser = message.role === 'user';
 
   return (
@@ -858,30 +960,19 @@ function MessageBubble({ message, isLoading = false, requestTokens = null }) {
       sx={{
         alignSelf: isUser ? 'flex-end' : 'flex-start',
         background: isUser
-          ? 'linear-gradient(135deg, rgba(15, 107, 95, 0.14) 0%, rgba(196, 95, 61, 0.1) 100%)'
+          ? `linear-gradient(135deg, ${withAlpha(accent, 0.16)} 0%, rgba(255,255,255,0.92) 100%)`
           : 'linear-gradient(180deg, #ffffff 0%, #f7faf8 100%)',
-        border: '1px solid',
-        borderColor: isUser ? 'rgba(20, 92, 82, 0.18)' : 'rgba(24, 32, 31, 0.1)',
+        border: '1px solid rgba(24, 32, 31, 0.1)',
         borderRadius: 2,
-        boxShadow: isUser
-          ? '0 14px 30px rgba(20, 92, 82, 0.1)'
-          : '0 14px 30px rgba(24, 32, 31, 0.07)',
-        maxWidth: { xs: '100%', md: '86%' },
+        boxShadow: isUser ? `0 14px 30px ${withAlpha(accent, 0.09)}` : '0 14px 30px rgba(24, 32, 31, 0.07)',
+        maxWidth: { xs: '100%', md: '88%' },
         px: 1,
         py: 0.9,
       }}
     >
       <Stack spacing={0.55}>
         <Stack direction="row" spacing={0.6} sx={{ alignItems: 'center' }}>
-          <Box
-            aria-hidden="true"
-            sx={{
-              background: isUser ? FULL_ACCENT : COMPRESSED_ACCENT,
-              borderRadius: 1,
-              height: 8,
-              width: 8,
-            }}
-          />
+          <Box aria-hidden="true" sx={{ background: accent, borderRadius: 1, height: 8, width: 8 }} />
           <Typography color="text.secondary" fontWeight={760} variant="caption">
             {isUser ? 'Вы' : 'Агент'}
           </Typography>
@@ -902,14 +993,15 @@ function MessageBubble({ message, isLoading = false, requestTokens = null }) {
 function MessageStats({ metadata }) {
   const { model, usage } = metadata;
   const items = [
+    metadata.strategy || 'strategy',
     model || 'unknown',
     `input: ${formatNumber(usage?.inputTokens)} ток.`,
     `output: ${formatNumber(usage?.outputTokens)} ток.`,
     formatCost(usage?.cost),
   ];
 
-  if (metadata.compression?.summaryUpdated) {
-    items.push('summary обновлен');
+  if (metadata.branchId) {
+    items.push(`branch: ${metadata.branchId}`);
   }
 
   return <MessageMetaLine items={items} />;
@@ -937,82 +1029,6 @@ function MessageMetaLine({ items }) {
   );
 }
 
-function TokenComparison({ comparison }) {
-  return (
-    <Box
-      sx={{
-        background: 'linear-gradient(135deg, rgba(15, 107, 95, 0.1) 0%, rgba(255,255,255,0.92) 72%)',
-        border: '1px solid rgba(24, 32, 31, 0.1)',
-        borderRadius: 1.5,
-        flex: 1,
-        minHeight: 88,
-        minWidth: 0,
-        p: 1,
-      }}
-    >
-      <Typography color="text.secondary" fontWeight={780} sx={{ mb: 0.8 }} variant="caption">
-        Сколько токенов уйдет в следующий запрос
-      </Typography>
-      <Stack
-        direction="row"
-        divider={<Divider flexItem orientation="vertical" />}
-        spacing={1}
-        sx={{ justifyContent: 'space-between' }}
-      >
-        <TinyStat
-          label="Полная история"
-          value={comparison ? `${formatNumber(comparison.fullInputTokens)} ток.` : 'после ввода'}
-        />
-        <TinyStat
-          label="Со summary"
-          value={comparison ? `${formatNumber(comparison.compressedInputTokens)} ток.` : 'после ввода'}
-        />
-        <TinyStat
-          label="Экономия"
-          value={comparison ? formatPercent(comparison.inputTokenSavingsPercent) : 'пока нет'}
-        />
-      </Stack>
-    </Box>
-  );
-}
-
-function SummaryStatus({ summary }) {
-  const hasSummary = Boolean(summary?.text);
-
-  return (
-    <Box
-      sx={{
-        background: 'linear-gradient(135deg, rgba(196, 95, 61, 0.11) 0%, rgba(255,255,255,0.92) 72%)',
-        border: '1px solid rgba(24, 32, 31, 0.1)',
-        borderRadius: 1.5,
-        flex: 1,
-        minHeight: 88,
-        minWidth: 0,
-        p: 1,
-      }}
-    >
-      <Typography color="text.secondary" fontWeight={780} sx={{ mb: 0.8 }} variant="caption">
-        Что уже заменено summary
-      </Typography>
-      <Stack
-        direction="row"
-        divider={<Divider flexItem orientation="vertical" />}
-        spacing={1}
-        sx={{ justifyContent: 'space-between' }}
-      >
-        <TinyStat
-          label="Сообщений сжато"
-          value={hasSummary ? formatNumber(summary.summarizedMessageCount) : 'пока 0'}
-        />
-        <TinyStat
-          label="Размер summary"
-          value={hasSummary ? `${formatNumber(summary.text.length)} симв.` : 'summary еще нет'}
-        />
-      </Stack>
-    </Box>
-  );
-}
-
 function TinyStat({ label, value }) {
   return (
     <Stack spacing={0.05} sx={{ minWidth: 0 }}>
@@ -1026,47 +1042,30 @@ function TinyStat({ label, value }) {
   );
 }
 
-function hasRealMessages(messages, welcomeId) {
-  return removeWelcome(messages, welcomeId).length > 0;
+function withWelcome(strategyMessages, welcomeMessage) {
+  return Array.isArray(strategyMessages) && strategyMessages.length > 0 ? strategyMessages : [welcomeMessage];
 }
 
-function removeWelcome(messages, welcomeId) {
-  return messages.filter((message) => message.id !== welcomeId);
+function hasRealMessages(strategyMessages, welcomeId) {
+  return removeWelcome(strategyMessages, welcomeId).length > 0;
 }
 
-function replaceMessage(messages, id, replacement) {
-  if (!replacement) {
-    return messages;
-  }
-
-  return messages.map((message) => (message.id === id ? replacement : message));
+function removeWelcome(strategyMessages, welcomeId) {
+  return strategyMessages.filter((message) => message.id !== welcomeId);
 }
 
-function buildFallbackAgentMessage(answer, result) {
-  return {
-    id: crypto.randomUUID(),
-    role: 'agent',
-    text: answer || 'Модель не вернула текстовый ответ.',
-    metadata: {
-      model: result?.model,
-      usage: result?.usage,
-      settings: result?.settings,
-    },
-  };
+function findLatestUsage(strategyMessages) {
+  return [...strategyMessages].reverse().find((message) => message.metadata?.usage)?.metadata?.usage || null;
 }
 
-function findLatestUsage(messages) {
-  return [...messages].reverse().find((message) => message.metadata?.usage)?.metadata?.usage || null;
-}
-
-function findRequestTokensForMessage(messages, index) {
-  const message = messages[index];
+function findRequestTokensForMessage(strategyMessages, index) {
+  const message = strategyMessages[index];
 
   if (message?.role !== 'user') {
     return null;
   }
 
-  const nextAgentMessage = messages.slice(index + 1).find((item) => item.role === 'agent');
+  const nextAgentMessage = strategyMessages.slice(index + 1).find((item) => item.role === 'agent');
 
   return nextAgentMessage?.metadata?.usage?.tokenReport?.currentRequestTokens ?? null;
 }
@@ -1077,17 +1076,6 @@ function formatNumber(value) {
   }
 
   return new Intl.NumberFormat('ru-RU').format(value);
-}
-
-function formatPercent(value) {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    return '0%';
-  }
-
-  return `${new Intl.NumberFormat('ru-RU', {
-    maximumFractionDigits: 1,
-    minimumFractionDigits: value % 1 === 0 ? 0 : 1,
-  }).format(value)}%`;
 }
 
 function formatCost(cost) {
@@ -1107,12 +1095,34 @@ function formatCost(cost) {
   }).format(cost.estimatedUsd);
 }
 
+function formatDateTime(value) {
+  if (!value) {
+    return '—';
+  }
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    month: '2-digit',
+  }).format(new Date(value));
+}
+
 function formatRequestError(error, fallback) {
   if (error instanceof TypeError && error.message === 'Failed to fetch') {
     return 'Не удалось подключиться к локальному API. Проверьте, что backend запущен и открыт правильный Vite URL.';
   }
 
   return error instanceof Error ? error.message : fallback;
+}
+
+function withAlpha(hex, alpha) {
+  const normalized = hex.replace('#', '');
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 const rootElement = document.getElementById('root');

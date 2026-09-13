@@ -31,3 +31,84 @@ test('MessageStore keeps full messages, compressed messages, and summary separat
   );
   assert.equal(store.getSummary('compressed').text, 'Compressed summary');
 });
+
+test('MessageStore trims Sliding Window messages physically', () => {
+  const databasePath = path.join(
+    os.tmpdir(),
+    `ai-advent-message-store-trim-${Date.now()}-${Math.random()}.sqlite`,
+  );
+  const store = new MessageStore({ databasePath });
+
+  store.addMessage({ mode: 'sliding', role: 'user', text: 'Message 1' });
+  store.addMessage({ mode: 'sliding', role: 'agent', text: 'Message 2' });
+  store.addMessage({ mode: 'sliding', role: 'user', text: 'Message 3' });
+  store.addMessage({ mode: 'sliding', role: 'agent', text: 'Message 4' });
+
+  const remaining = store.trimMessages({
+    mode: 'sliding',
+    keepCount: 2,
+  });
+
+  assert.deepEqual(
+    remaining.map((message) => message.text),
+    ['Message 3', 'Message 4'],
+  );
+  assert.deepEqual(
+    store.getMessages('sliding').map((message) => message.text),
+    ['Message 3', 'Message 4'],
+  );
+});
+
+test('MessageStore creates independent Branching checkpoint branches', () => {
+  const databasePath = path.join(
+    os.tmpdir(),
+    `ai-advent-message-store-branch-${Date.now()}-${Math.random()}.sqlite`,
+  );
+  const store = new MessageStore({ databasePath });
+
+  store.addMessage({ mode: 'branching', role: 'user', text: 'Common question' });
+  store.addMessage({ mode: 'branching', role: 'agent', text: 'Common answer' });
+
+  const state = store.createBranchingCheckpoint();
+
+  assert.equal(state.activeBranchId, 'A');
+  assert.equal(state.checkpointMessageCount, 2);
+  assert.deepEqual(
+    store.getMessages('branching', { branchId: 'A' }).map((message) => message.text),
+    ['Common question', 'Common answer'],
+  );
+  assert.deepEqual(
+    store.getMessages('branching', { branchId: 'B' }).map((message) => message.text),
+    ['Common question', 'Common answer'],
+  );
+
+  store.addMessage({ mode: 'branching', branchId: 'A', role: 'user', text: 'A only' });
+  store.addMessage({ mode: 'branching', branchId: 'B', role: 'user', text: 'B only' });
+
+  assert.deepEqual(
+    store.getMessages('branching', { branchId: 'A' }).map((message) => message.text),
+    ['Common question', 'Common answer', 'A only'],
+  );
+  assert.deepEqual(
+    store.getMessages('branching', { branchId: 'B' }).map((message) => message.text),
+    ['Common question', 'Common answer', 'B only'],
+  );
+});
+
+test('MessageStore saves fixed Sticky Facts keys', () => {
+  const databasePath = path.join(
+    os.tmpdir(),
+    `ai-advent-message-store-facts-${Date.now()}-${Math.random()}.sqlite`,
+  );
+  const store = new MessageStore({ databasePath });
+
+  const facts = store.saveFacts({
+    goal: 'Build agent',
+    constraints: 'No summary',
+  });
+
+  assert.equal(facts.goal, 'Build agent');
+  assert.equal(facts.constraints, 'No summary');
+  assert.equal(facts.preferences, '');
+  assert.deepEqual(store.getFacts(), facts);
+});
