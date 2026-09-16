@@ -6,7 +6,7 @@ import {
   estimateCost,
 } from './TokenUsageAnalyzer.js';
 
-const DEFAULT_MODEL = 'gpt-4o-mini';
+const DEFAULT_MODEL = 'gpt-4o';
 const REQUEST_SETTINGS = {
   temperature: null,
   reasoningEffort: null,
@@ -30,9 +30,13 @@ export class AgentContextOverflowError extends Error {
 }
 
 export class LlmAgent {
-  constructor({ apiKey, model = DEFAULT_MODEL } = {}) {
+  constructor({ apiKey, model = DEFAULT_MODEL, tokenCountingMode = 'api' } = {}) {
     this.model = model;
-    this.tokenUsageAnalyzer = new TokenUsageAnalyzer({ apiKey, model });
+    this.tokenUsageAnalyzer = new TokenUsageAnalyzer({
+      apiKey,
+      model,
+      fetchImpl: tokenCountingMode === 'api' ? globalThis.fetch : null,
+    });
 
     if (!apiKey) {
       this.client = null;

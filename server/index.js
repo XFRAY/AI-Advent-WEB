@@ -2,11 +2,9 @@ import 'dotenv/config';
 import express from 'express';
 import { fileURLToPath } from 'node:url';
 import {
-  ContextStrategies,
-  DEFAULT_LAST_MESSAGES_COUNT,
-  STRATEGIES,
-  buildTokenComparison,
-} from './ContextStrategies.js';
+  MemoryLayers,
+  buildMemoryTokenComparison,
+} from './MemoryLayers.js';
 import {
   AgentApiError,
   AgentConfigurationError,
@@ -22,18 +20,19 @@ const port = Number(process.env.PORT || 3001);
 const createDefaultAgent = () =>
   new LlmAgent({
     apiKey: process.env.OPENAI_API_KEY,
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    model: process.env.OPENAI_MODEL || 'gpt-4o',
+    tokenCountingMode: process.env.OPENAI_TOKEN_COUNTING || 'estimate',
   });
 
 export function createApp({
   agent = createDefaultAgent(),
   messageStore = new MessageStore(),
-  contextStrategies = null,
+  memoryLayers = null,
 } = {}) {
   const app = express();
-  const strategies =
-    contextStrategies ||
-    new ContextStrategies({
+  const memory =
+    memoryLayers ||
+    new MemoryLayers({
       client: agent.client,
       model: agent.model,
     });
@@ -44,28 +43,19 @@ export function createApp({
     response.json({ ok: true });
   });
 
-  app.get('/api/messages', (_request, response) => {
-    const branchingState = messageStore.getBranchingState();
-    const activeBranchId = branchingState.activeBranchId;
-    const slidingMessages = messageStore.getMessages(STRATEGIES.sliding.id);
-    const factsMessages = messageStore.getMessages(STRATEGIES.facts.id);
-    const branchingMessages = messageStore.getMessages(STRATEGIES.branching.id, {
-      branchId: activeBranchId === 'main' ? null : activeBranchId,
-    });
-    const facts = messageStore.getFacts();
+  app.get('/api/memory', (_request, response) => {
+    const shortTermMessages = messageStore.getShortTermMessages();
+    const workingMemory = messageStore.getWorkingMemory();
+    const longTermMemory = messageStore.getLongTermMemory();
 
     response.json({
-      slidingMessages,
-      factsMessages,
-      branchingMessages,
-      messages: slidingMessages,
-      facts,
-      branchingState,
-      strategyStats: buildStrategyStats({
-        slidingMessages,
-        factsMessages,
-        branchingMessages,
-        facts,
+      shortTermMessages,
+      workingMemory,
+      longTermMemory,
+      memoryStats: buildMemoryStats({
+        shortTermMessages,
+        workingMemory,
+        longTermMemory,
       }),
     });
   });
@@ -76,201 +66,85 @@ export function createApp({
     response.json({
       model: agent.model,
       modelContextWindow: modelConfig?.contextWindow ?? null,
-      strategyDefaults: strategies.normalizeSettings(),
+      memoryDefaults: memory.normalizeSettings(),
     });
   });
 
   app.post('/api/context-preview', async (request, response) => {
     try {
       const message = agent.normalizePreviewInput(request.body?.message);
-      const settings = strategies.normalizeSettings(request.body?.settings);
-      const context = buildCurrentPreparedContexts({ messageStore, strategies, settings });
-      const [slidingReport, factsReport, branchingReport] = await Promise.all([
-        agent.buildTokenReport({
-          message,
-          history: context.histories.sliding,
-          conversationHistoryInput: context.prepared.sliding.conversationHistoryInput,
-        }),
-        agent.buildTokenReport({
-          message,
-          history: context.histories.facts,
-          conversationHistoryInput: context.prepared.facts.conversationHistoryInput,
-        }),
-        agent.buildTokenReport({
-          message,
-          history: context.histories.branching,
-          conversationHistoryInput: context.prepared.branching.conversationHistoryInput,
-        }),
-      ]);
+      const settings = memory.normalizeSettings(request.body?.settings);
+      const context = buildCurrentMemoryContext({ messageStore, memory, settings });
+      const tokenReport = await agent.buildTokenReport({
+        message,
+        history: context.shortTermMessages,
+        conversationHistoryInput: context.prepared.conversationHistoryInput,
+      });
 
       response.json({
-        sliding: {
-          tokenReport: slidingReport,
-          stats: context.prepared.sliding.stats,
-        },
-        facts: {
-          tokenReport: factsReport,
-          stats: context.prepared.facts.stats,
-        },
-        branching: {
-          tokenReport: branchingReport,
-          stats: context.prepared.branching.stats,
-        },
-        comparison: buildTokenComparison({
-          sliding: slidingReport,
-          facts: factsReport,
-          branching: branchingReport,
-        }),
+        tokenReport,
+        stats: context.prepared.stats,
+        comparison: buildMemoryTokenComparison(tokenReport),
       });
     } catch (error) {
       sendError(response, error, 'Unknown server error');
     }
   });
 
-  app.delete('/api/messages', (_request, response) => {
-    messageStore.clearMessages();
+  app.delete('/api/memory', (_request, response) => {
+    messageStore.clearMemory();
 
     response.json({
-      slidingMessages: [],
-      factsMessages: [],
-      branchingMessages: [],
-      facts: messageStore.getFacts(),
-      branchingState: messageStore.getBranchingState(),
+      shortTermMessages: [],
+      workingMemory: messageStore.getWorkingMemory(),
+      longTermMemory: messageStore.getLongTermMemory(),
     });
   });
 
-  app.post('/api/chat/compare', async (request, response) => {
+  app.post('/api/chat', async (request, response) => {
     try {
       const message = agent.normalizeInput(request.body?.message);
-      const settings = strategies.normalizeSettings(request.body?.settings);
-      const before = buildCurrentPreparedContexts({ messageStore, strategies, settings });
-      const factsContext = strategies.previewFacts({
-        history: before.histories.facts,
-        facts: before.facts,
-        settings,
-      });
-      const [slidingResult, factsResult, branchingResult] = await Promise.all([
-        agent.ask({
-          message,
-          history: before.histories.sliding,
-          conversationHistoryInput: before.prepared.sliding.conversationHistoryInput,
-        }),
-        agent.ask({
-          message,
-          history: before.histories.facts,
-          conversationHistoryInput: factsContext.conversationHistoryInput,
-        }),
-        agent.ask({
-          message,
-          history: before.histories.branching,
-          conversationHistoryInput: before.prepared.branching.conversationHistoryInput,
-        }),
-      ]);
-      const branchId =
-        before.branchingState.activeBranchId === 'main' ? null : before.branchingState.activeBranchId;
-      const updatedFacts = await strategies.updateFacts({
-        facts: before.facts,
-        userMessage: message,
-      });
-      const savedFacts = messageStore.saveFacts(updatedFacts);
-      const slidingMessages = saveStrategyExchange({
-        messageStore,
-        mode: STRATEGIES.sliding.id,
+      const settings = memory.normalizeSettings(request.body?.settings);
+      const before = buildCurrentMemoryContext({ messageStore, memory, settings });
+      const result = await agent.ask({
         message,
-        result: slidingResult,
+        history: before.shortTermMessages,
+        conversationHistoryInput: before.prepared.conversationHistoryInput,
+      });
+      const messages = saveMemoryExchange({
+        messageStore,
+        message,
+        result,
         metadata: {
-          strategy: STRATEGIES.sliding.id,
-          stats: before.prepared.sliding.stats,
+          memoryStats: before.prepared.stats,
+          memoryChanges: {
+            workingMemory: [],
+            longTermMemory: [],
+          },
+          memoryUpdateStatus: 'pending',
         },
       });
-
-      messageStore.trimMessages({
-        mode: STRATEGIES.sliding.id,
-        keepCount: settings.lastMessagesCount,
-      });
-
-      const factsMessages = saveStrategyExchange({
+      updateMemoryInBackground({
+        memory,
         messageStore,
-        mode: STRATEGIES.facts.id,
+        before,
         message,
-        result: factsResult,
-        metadata: {
-          strategy: STRATEGIES.facts.id,
-          stats: factsContext.stats,
-          facts: savedFacts,
-        },
-      });
-      const branchingMessages = saveStrategyExchange({
-        messageStore,
-        mode: STRATEGIES.branching.id,
-        branchId,
-        message,
-        result: branchingResult,
-        metadata: {
-          strategy: STRATEGIES.branching.id,
-          branchId: before.branchingState.activeBranchId,
-          stats: before.prepared.branching.stats,
-        },
+        answer: result.answer,
       });
 
       response.json({
-        sliding: {
-          ...slidingResult,
-          userMessage: slidingMessages.userMessage,
-          agentMessage: slidingMessages.agentMessage,
-          messages: messageStore.getMessages(STRATEGIES.sliding.id),
+        ...result,
+        userMessage: messages.userMessage,
+        agentMessage: messages.agentMessage,
+        shortTermMessages: messageStore.getShortTermMessages(),
+        workingMemory: before.workingMemory,
+        longTermMemory: before.longTermMemory,
+        memoryChanges: {
+          workingMemory: [],
+          longTermMemory: [],
         },
-        facts: {
-          ...factsResult,
-          userMessage: factsMessages.userMessage,
-          agentMessage: factsMessages.agentMessage,
-          messages: messageStore.getMessages(STRATEGIES.facts.id),
-          facts: savedFacts,
-        },
-        branching: {
-          ...branchingResult,
-          userMessage: branchingMessages.userMessage,
-          agentMessage: branchingMessages.agentMessage,
-          messages: messageStore.getMessages(STRATEGIES.branching.id, { branchId }),
-          branchingState: before.branchingState,
-        },
-        comparison: buildTokenComparison({
-          sliding: slidingResult.usage?.tokenReport,
-          facts: factsResult.usage?.tokenReport,
-          branching: branchingResult.usage?.tokenReport,
-        }),
-      });
-    } catch (error) {
-      sendError(response, error, 'Unknown server error');
-    }
-  });
-
-  app.post('/api/branching/checkpoint', (_request, response) => {
-    try {
-      const current = messageStore.getBranchingState();
-      const sourceBranchId = current.activeBranchId === 'main' ? null : current.activeBranchId;
-      const branchingState = messageStore.createBranchingCheckpoint({ sourceBranchId });
-
-      response.json({
-        branchingState,
-        branchingMessages: messageStore.getMessages(STRATEGIES.branching.id, { branchId: 'A' }),
-      });
-    } catch (error) {
-      sendError(response, error, 'Unknown server error');
-    }
-  });
-
-  app.post('/api/branching/active-branch', (request, response) => {
-    try {
-      const branchId = request.body?.branchId;
-      const branchingState = messageStore.setActiveBranch(branchId);
-      const effectiveBranchId = branchingState.activeBranchId === 'main' ? null : branchingState.activeBranchId;
-
-      response.json({
-        branchingState,
-        branchingMessages: messageStore.getMessages(STRATEGIES.branching.id, {
-          branchId: effectiveBranchId,
-        }),
+        memoryUpdateStatus: 'pending',
+        comparison: buildMemoryTokenComparison(result.usage?.tokenReport),
       });
     } catch (error) {
       sendError(response, error, 'Unknown server error');
@@ -280,41 +154,31 @@ export function createApp({
   return app;
 }
 
-function buildCurrentPreparedContexts({ messageStore, strategies, settings }) {
-  const facts = messageStore.getFacts();
-  const branchingState = messageStore.getBranchingState();
-  const branchId = branchingState.activeBranchId === 'main' ? null : branchingState.activeBranchId;
-  const histories = {
-    sliding: messageStore.getMessages(STRATEGIES.sliding.id),
-    facts: messageStore.getMessages(STRATEGIES.facts.id),
-    branching: messageStore.getMessages(STRATEGIES.branching.id, { branchId }),
-  };
-  const prepared = strategies.previewAll({
-    slidingHistory: histories.sliding,
-    factsHistory: histories.facts,
-    facts,
-    branchingHistory: histories.branching,
+function buildCurrentMemoryContext({ messageStore, memory, settings }) {
+  const shortTermMessages = messageStore.getShortTermMessages();
+  const workingMemory = messageStore.getWorkingMemory();
+  const longTermMemory = messageStore.getLongTermMemory();
+  const prepared = memory.previewContext({
+    shortTermMessages,
+    workingMemory,
+    longTermMemory,
     settings,
   });
 
   return {
-    facts,
-    branchingState,
-    histories,
+    shortTermMessages,
+    workingMemory,
+    longTermMemory,
     prepared,
   };
 }
 
-function saveStrategyExchange({ messageStore, mode, branchId = null, message, result, metadata }) {
-  const userMessage = messageStore.addMessage({
-    mode,
-    branchId,
+function saveMemoryExchange({ messageStore, message, result, metadata }) {
+  const userMessage = messageStore.addShortTermMessage({
     role: 'user',
     text: message,
   });
-  const agentMessage = messageStore.addMessage({
-    mode,
-    branchId,
+  const agentMessage = messageStore.addShortTermMessage({
     role: 'agent',
     text: result.answer,
     metadata: {
@@ -331,17 +195,44 @@ function saveStrategyExchange({ messageStore, mode, branchId = null, message, re
   };
 }
 
-function buildStrategyStats({ slidingMessages, factsMessages, branchingMessages, facts }) {
+function updateMemoryInBackground({ memory, messageStore, before, message, answer }) {
+  setImmediate(async () => {
+    try {
+      const memoryUpdate = await memory.updateMemory({
+        workingMemory: before.workingMemory,
+        longTermMemory: before.longTermMemory,
+        shortTermMessages: before.shortTermMessages,
+        userMessage: message,
+        agentAnswer: answer,
+      });
+      const currentShortTermMessages = messageStore.getShortTermMessages();
+      const exchangeStillExists =
+        currentShortTermMessages.some((item) => item.role === 'user' && item.text === message) &&
+        currentShortTermMessages.some((item) => item.role === 'agent' && item.text === answer);
+
+      if (!exchangeStillExists) {
+        return;
+      }
+
+      messageStore.saveWorkingMemory(memoryUpdate.workingMemory);
+      messageStore.saveLongTermMemory(memoryUpdate.longTermMemory);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown memory update error';
+      console.error(`Background memory update failed: ${message}`);
+    }
+  });
+}
+
+function buildMemoryStats({ shortTermMessages, workingMemory, longTermMemory }) {
   return {
-    sliding: {
-      rawMessageCount: slidingMessages.length,
+    shortTerm: {
+      rawMessageCount: shortTermMessages.length,
     },
-    facts: {
-      rawMessageCount: factsMessages.length,
-      factsCharacters: JSON.stringify(facts).length,
+    working: {
+      characters: JSON.stringify(workingMemory).length,
     },
-    branching: {
-      rawMessageCount: branchingMessages.length,
+    longTerm: {
+      characters: JSON.stringify(longTermMemory).length,
     },
   };
 }
@@ -380,7 +271,7 @@ if (isMainModule) {
   const app = createApp();
   const server = app.listen(port, () => {
     console.log(`Agent API is running on http://localhost:${port}`);
-    console.log(`Default last messages count: ${DEFAULT_LAST_MESSAGES_COUNT}`);
+    console.log('Memory layers: short-term, working, long-term');
   });
 
   server.on('error', (error) => {

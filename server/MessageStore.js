@@ -17,6 +17,19 @@ const DEFAULT_FACTS = {
   openQuestions: '',
   agreements: '',
 };
+const DEFAULT_WORKING_MEMORY = {
+  goal: '',
+  taskData: '',
+  constraints: '',
+  openQuestions: '',
+  nextSteps: '',
+};
+const DEFAULT_LONG_TERM_MEMORY = {
+  profile: '',
+  preferences: '',
+  decisions: '',
+  knowledge: '',
+};
 const DEFAULT_BRANCHING_STATE = {
   activeBranchId: 'main',
   checkpointAt: null,
@@ -87,13 +100,56 @@ export class MessageStore {
       .run();
     this.database
       .prepare(
+        `CREATE TABLE IF NOT EXISTS short_term_messages (
+          id TEXT PRIMARY KEY,
+          role TEXT NOT NULL CHECK (role IN ('user', 'agent')),
+          text TEXT NOT NULL,
+          metadata_json TEXT,
+          created_at TEXT NOT NULL
+        )`,
+      )
+      .run();
+    this.database
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS working_memory (
+          id TEXT PRIMARY KEY,
+          memory_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )`,
+      )
+      .run();
+    this.database
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS long_term_memory (
+          id TEXT PRIMARY KEY,
+          memory_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )`,
+      )
+      .run();
+    this.database
+      .prepare(
         'CREATE INDEX IF NOT EXISTS idx_messages_mode_branch_created_at ON messages (mode, branch_id, created_at)',
+      )
+      .run();
+    this.database
+      .prepare(
+        'CREATE INDEX IF NOT EXISTS idx_short_term_messages_created_at ON short_term_messages (created_at)',
       )
       .run();
 
     this.insertMessage = this.database.prepare(
       `INSERT INTO messages (id, mode, branch_id, role, text, metadata_json, created_at)
        VALUES (@id, @mode, @branchId, @role, @text, @metadataJson, @createdAt)`,
+    );
+    this.insertShortTermMessage = this.database.prepare(
+      `INSERT INTO short_term_messages (id, role, text, metadata_json, created_at)
+       VALUES (@id, @role, @text, @metadataJson, @createdAt)`,
+    );
+    this.selectShortTermMessages = this.database.prepare(
+      `SELECT id, role, text, metadata_json, created_at
+       FROM short_term_messages
+       ORDER BY created_at ASC, rowid ASC`,
     );
     this.selectMessages = this.database.prepare(
       `SELECT id, mode, branch_id, role, text, metadata_json, created_at
@@ -112,6 +168,9 @@ export class MessageStore {
     this.deleteSummaries = this.database.prepare('DELETE FROM summaries');
     this.deleteFacts = this.database.prepare('DELETE FROM facts');
     this.deleteBranchingState = this.database.prepare('DELETE FROM branching_state');
+    this.deleteShortTermMessages = this.database.prepare('DELETE FROM short_term_messages');
+    this.deleteWorkingMemory = this.database.prepare('DELETE FROM working_memory');
+    this.deleteLongTermMemory = this.database.prepare('DELETE FROM long_term_memory');
     this.deleteMessagesByModeAndBranch = this.database.prepare(
       `DELETE FROM messages
        WHERE mode = @mode
@@ -159,6 +218,26 @@ export class MessageStore {
          facts_json = excluded.facts_json,
          updated_at = excluded.updated_at`,
     );
+    this.selectWorkingMemory = this.database.prepare(
+      'SELECT memory_json, updated_at FROM working_memory WHERE id = @id',
+    );
+    this.upsertWorkingMemory = this.database.prepare(
+      `INSERT INTO working_memory (id, memory_json, updated_at)
+       VALUES (@id, @memoryJson, @updatedAt)
+       ON CONFLICT(id) DO UPDATE SET
+         memory_json = excluded.memory_json,
+         updated_at = excluded.updated_at`,
+    );
+    this.selectLongTermMemory = this.database.prepare(
+      'SELECT memory_json, updated_at FROM long_term_memory WHERE id = @id',
+    );
+    this.upsertLongTermMemory = this.database.prepare(
+      `INSERT INTO long_term_memory (id, memory_json, updated_at)
+       VALUES (@id, @memoryJson, @updatedAt)
+       ON CONFLICT(id) DO UPDATE SET
+         memory_json = excluded.memory_json,
+         updated_at = excluded.updated_at`,
+    );
     this.selectBranchingState = this.database.prepare(
       `SELECT active_branch_id, checkpoint_at, checkpoint_message_count,
               checkpoint_source_branch_id, branch_labels_json, updated_at
@@ -182,6 +261,40 @@ export class MessageStore {
           branch_labels_json = excluded.branch_labels_json,
           updated_at = excluded.updated_at`,
     );
+  }
+
+  getShortTermMessages() {
+    return this.selectShortTermMessages.all().map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.text,
+      metadata: this.parseMetadata(message.metadata_json),
+      createdAt: message.created_at,
+    }));
+  }
+
+  addShortTermMessage({ role, text, metadata = null }) {
+    if (!ALLOWED_ROLES.has(role)) {
+      throw new Error(`Unsupported message role: ${role}`);
+    }
+
+    const message = {
+      id: randomUUID(),
+      role,
+      text,
+      metadata,
+      createdAt: new Date().toISOString(),
+    };
+
+    this.insertShortTermMessage.run({
+      id: message.id,
+      role: message.role,
+      text: message.text,
+      metadataJson: metadata ? JSON.stringify(metadata) : null,
+      createdAt: message.createdAt,
+    });
+
+    return message;
   }
 
   getMessages(mode = 'full', { branchId = null } = {}) {
@@ -314,6 +427,61 @@ export class MessageStore {
     this.deleteSummaries.run();
     this.deleteFacts.run();
     this.deleteBranchingState.run();
+    this.clearMemory();
+  }
+
+  clearMemory() {
+    this.deleteShortTermMessages.run();
+    this.deleteWorkingMemory.run();
+    this.deleteLongTermMemory.run();
+  }
+
+  getWorkingMemory() {
+    const row = this.selectWorkingMemory.get({ id: 'default' });
+
+    if (!row) {
+      return {
+        ...DEFAULT_WORKING_MEMORY,
+      };
+    }
+
+    return normalizeMemory(row.memory_json, DEFAULT_WORKING_MEMORY);
+  }
+
+  saveWorkingMemory(memory) {
+    const normalizedMemory = normalizeMemory(memory, DEFAULT_WORKING_MEMORY);
+
+    this.upsertWorkingMemory.run({
+      id: 'default',
+      memoryJson: JSON.stringify(normalizedMemory),
+      updatedAt: new Date().toISOString(),
+    });
+
+    return normalizedMemory;
+  }
+
+  getLongTermMemory() {
+    const row = this.selectLongTermMemory.get({ id: 'default' });
+
+    if (!row) {
+      return {
+        ...DEFAULT_LONG_TERM_MEMORY,
+      };
+    }
+
+    return normalizeMemory(row.memory_json, DEFAULT_LONG_TERM_MEMORY);
+  }
+
+  saveLongTermMemory(memory) {
+    const normalizedMemory = normalizeMemory(memory, DEFAULT_LONG_TERM_MEMORY);
+
+    this.upsertLongTermMemory.run({
+      id: 'default',
+      memoryJson: JSON.stringify(normalizedMemory),
+      updatedAt: new Date().toISOString(),
+    });
+
+    return normalizedMemory;
   }
 
   getFacts() {
@@ -500,3 +668,50 @@ function normalizeFacts(facts) {
 }
 
 export { DEFAULT_FACTS, DEFAULT_BRANCHING_STATE };
+
+function normalizeMemory(memoryOrJson, defaults) {
+  const memory =
+    typeof memoryOrJson === 'string' ? parseMemoryJson(memoryOrJson) : memoryOrJson;
+
+  return Object.fromEntries(
+    Object.entries(defaults).map(([key, fallback]) => {
+      const value = memory?.[key];
+
+      return [key, formatMemoryValue(value, fallback)];
+    }),
+  );
+}
+
+function formatMemoryValue(value, fallback = '') {
+  if (Array.isArray(value)) {
+    return value.map((item) => formatMemoryValue(item)).filter(Boolean).join('; ');
+  }
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (value == null) {
+    return fallback;
+  }
+
+  if (typeof value === 'object') {
+    const entries = Object.entries(value)
+      .filter(([, nestedValue]) => nestedValue != null && nestedValue !== '')
+      .map(([nestedKey, nestedValue]) => `${nestedKey}: ${formatMemoryValue(nestedValue)}`);
+
+    return entries.length > 0 ? entries.join('; ') : fallback;
+  }
+
+  return String(value);
+}
+
+function parseMemoryJson(memoryJson) {
+  try {
+    return JSON.parse(memoryJson);
+  } catch {
+    return null;
+  }
+}
+
+export { DEFAULT_WORKING_MEMORY, DEFAULT_LONG_TERM_MEMORY };

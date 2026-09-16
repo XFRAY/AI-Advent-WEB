@@ -1,10 +1,9 @@
-import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded';
-import BookmarkAddRoundedIcon from '@mui/icons-material/BookmarkAddRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
-import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
+import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
+import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
 import MemoryRoundedIcon from '@mui/icons-material/MemoryRounded';
+import PsychologyRoundedIcon from '@mui/icons-material/PsychologyRounded';
 import SendRoundedIcon from '@mui/icons-material/SendRounded';
-import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
 import {
   Alert,
@@ -28,38 +27,34 @@ import './styles.css';
 
 const DEFAULT_MODEL_CONTEXT_LIMIT = 128_000;
 const DEFAULT_SETTINGS = {
-  lastMessagesCount: 6,
-};
-const STRATEGY_ACCENTS = {
-  sliding: '#0f6b5f',
-  facts: '#8a5a00',
-  branching: '#3559a6',
+  shortTermLimit: 8,
 };
 const INK = '#17201e';
-const FACT_LABELS = {
-  goal: 'Цель',
-  constraints: 'Ограничения',
-  preferences: 'Предпочтения',
-  decisions: 'Решения',
-  openQuestions: 'Открытые вопросы',
-  agreements: 'Договоренности',
+const ACCENTS = {
+  shortTerm: '#12675c',
+  working: '#8a5a00',
+  longTerm: '#3859a7',
 };
-const welcomeMessages = {
-  sliding: {
-    id: 'welcome-sliding',
-    role: 'agent',
-    text: 'Я вижу только последние N сообщений. Ранние детали исчезают физически.',
+const MEMORY_LABELS = {
+  workingMemory: {
+    goal: 'Цель',
+    taskData: 'Данные задачи',
+    constraints: 'Ограничения',
+    openQuestions: 'Открытые вопросы',
+    nextSteps: 'Следующие шаги',
   },
-  facts: {
-    id: 'welcome-facts',
-    role: 'agent',
-    text: 'Я вижу facts-блок и последние N сообщений. Договоренности живут отдельно.',
+  longTermMemory: {
+    profile: 'Профиль',
+    preferences: 'Предпочтения',
+    decisions: 'Решения',
+    knowledge: 'Знания',
   },
-  branching: {
-    id: 'welcome-branching',
-    role: 'agent',
-    text: 'Я веду активную ветку. Сделайте checkpoint, чтобы разойтись в A/B.',
-  },
+};
+const welcomeMessage = {
+  id: 'welcome-memory',
+  role: 'agent',
+  text:
+    'Я агент с явной памятью: диалог сохраняю в short-term, состояние текущей задачи — в working memory, а устойчивые факты и решения — в long-term memory.',
 };
 
 const theme = createTheme({
@@ -69,7 +64,7 @@ const theme = createTheme({
       paper: '#ffffff',
     },
     primary: {
-      main: STRATEGY_ACCENTS.sliding,
+      main: ACCENTS.shortTerm,
     },
     text: {
       primary: INK,
@@ -152,24 +147,11 @@ const theme = createTheme({
 });
 
 function App() {
-  const [messages, setMessages] = useState({
-    sliding: [welcomeMessages.sliding],
-    facts: [welcomeMessages.facts],
-    branching: [welcomeMessages.branching],
-  });
-  const [facts, setFacts] = useState({});
-  const [branchingState, setBranchingState] = useState({
-    activeBranchId: 'main',
-    checkpointAt: null,
-    checkpointMessageCount: 0,
-    branchLabels: {
-      main: 'Main',
-      A: 'Branch A',
-      B: 'Branch B',
-    },
-  });
+  const [messages, setMessages] = useState([welcomeMessage]);
+  const [workingMemory, setWorkingMemory] = useState({});
+  const [longTermMemory, setLongTermMemory] = useState({});
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
-  const [modelName, setModelName] = useState('gpt-4o-mini');
+  const [modelName, setModelName] = useState('gpt-4o');
   const [modelContextLimit, setModelContextLimit] = useState(DEFAULT_MODEL_CONTEXT_LIMIT);
   const [input, setInput] = useState('');
   const [preview, setPreview] = useState(null);
@@ -178,12 +160,12 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const inputRef = useRef(null);
-  const hasSavedMessages = Object.entries(messages).some(([strategy, strategyMessages]) =>
-    hasRealMessages(strategyMessages, welcomeMessages[strategy].id),
-  );
-  const isOverflow = Object.values(preview ?? {}).some(
-    (item) => item?.tokenReport?.context?.status === 'overflow',
-  );
+  const realMessages = removeWelcome(messages);
+  const hasSavedMemory =
+    realMessages.length > 0 ||
+    hasMemoryValues(workingMemory) ||
+    hasMemoryValues(longTermMemory);
+  const isOverflow = preview?.tokenReport?.context?.status === 'overflow';
   const canSend =
     input.trim().length > 0 &&
     !isLoading &&
@@ -196,39 +178,35 @@ function App() {
 
     async function loadInitialData() {
       try {
-        const [messagesResponse, configResponse] = await Promise.all([
-          fetch('/api/messages'),
+        const [memoryResponse, configResponse] = await Promise.all([
+          fetch('/api/memory'),
           fetch('/api/config'),
         ]);
-        const messagesData = await messagesResponse.json().catch(() => ({}));
+        const memoryData = await memoryResponse.json().catch(() => ({}));
         const configData = await configResponse.json().catch(() => ({}));
 
-        if (!messagesResponse.ok) {
-          throw new Error(messagesData.error || 'Не удалось загрузить истории.');
+        if (!memoryResponse.ok) {
+          throw new Error(memoryData.error || 'Не удалось загрузить память.');
         }
 
         if (!isMounted) {
           return;
         }
 
-        setMessages({
-          sliding: withWelcome(messagesData.slidingMessages, welcomeMessages.sliding),
-          facts: withWelcome(messagesData.factsMessages, welcomeMessages.facts),
-          branching: withWelcome(messagesData.branchingMessages, welcomeMessages.branching),
-        });
-        setFacts(messagesData.facts ?? {});
-        setBranchingState(messagesData.branchingState ?? branchingState);
-        setModelName(configResponse.ok && configData.model ? configData.model : 'gpt-4o-mini');
+        setMessages(withWelcome(memoryData.shortTermMessages));
+        setWorkingMemory(memoryData.workingMemory ?? {});
+        setLongTermMemory(memoryData.longTermMemory ?? {});
+        setModelName(configResponse.ok && configData.model ? configData.model : 'gpt-4o');
         setModelContextLimit(
           configResponse.ok && Number.isInteger(configData.modelContextWindow)
             ? configData.modelContextWindow
             : DEFAULT_MODEL_CONTEXT_LIMIT,
         );
-        if (configResponse.ok && configData.strategyDefaults) {
-          setSettings(configData.strategyDefaults);
+        if (configResponse.ok && configData.memoryDefaults) {
+          setSettings(configData.memoryDefaults);
         }
       } catch (requestError) {
-        setError(formatRequestError(requestError, 'Не удалось загрузить истории.'));
+        setError(formatRequestError(requestError, 'Не удалось загрузить память.'));
       } finally {
         if (isMounted) {
           setIsBooting(false);
@@ -265,7 +243,7 @@ function App() {
         const data = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          throw new Error(data.error || 'Не удалось посчитать токены.');
+          throw new Error(data.error || 'Не удалось посчитать контекст.');
         }
 
         setPreview(data);
@@ -284,11 +262,10 @@ function App() {
     input,
     isBooting,
     isResetting,
-    messages.sliding.length,
-    messages.facts.length,
-    messages.branching.length,
-    settings.lastMessagesCount,
-    branchingState.activeBranchId,
+    messages.length,
+    settings.shortTermLimit,
+    JSON.stringify(workingMemory),
+    JSON.stringify(longTermMemory),
   ]);
 
   async function handleSubmit(event) {
@@ -304,7 +281,7 @@ function App() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/chat/compare', {
+      const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -314,17 +291,17 @@ function App() {
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.error || 'Не удалось получить ответы стратегий.');
+        throw new Error(data.error || 'Не удалось получить ответ агента.');
       }
 
-      setMessages({
-        sliding: withWelcome(data.sliding?.messages, welcomeMessages.sliding),
-        facts: withWelcome(data.facts?.messages, welcomeMessages.facts),
-        branching: withWelcome(data.branching?.messages, welcomeMessages.branching),
-      });
-      setFacts(data.facts?.facts ?? facts);
-      setBranchingState(data.branching?.branchingState ?? branchingState);
+      setMessages(withWelcome(data.shortTermMessages));
+      setWorkingMemory(data.workingMemory ?? {});
+      setLongTermMemory(data.longTermMemory ?? {});
       setPreview(null);
+
+      if (data.memoryUpdateStatus === 'pending') {
+        scheduleMemoryRefresh();
+      }
     } catch (requestError) {
       setError(formatRequestError(requestError, 'Произошла неизвестная ошибка.'));
     } finally {
@@ -334,7 +311,7 @@ function App() {
   }
 
   async function handleReset() {
-    if (isLoading || isBooting || isResetting || !hasSavedMessages) {
+    if (isLoading || isBooting || isResetting || !hasSavedMemory) {
       return;
     }
 
@@ -342,92 +319,24 @@ function App() {
     setIsResetting(true);
 
     try {
-      const response = await fetch('/api/messages', {
+      const response = await fetch('/api/memory', {
         method: 'DELETE',
       });
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.error || 'Не удалось очистить истории.');
+        throw new Error(data.error || 'Не удалось очистить память.');
       }
 
-      setMessages({
-        sliding: [welcomeMessages.sliding],
-        facts: [welcomeMessages.facts],
-        branching: [welcomeMessages.branching],
-      });
-      setFacts(data.facts ?? {});
-      setBranchingState(data.branchingState ?? branchingState);
+      setMessages([welcomeMessage]);
+      setWorkingMemory(data.workingMemory ?? {});
+      setLongTermMemory(data.longTermMemory ?? {});
       setPreview(null);
     } catch (requestError) {
-      setError(formatRequestError(requestError, 'Не удалось очистить истории.'));
+      setError(formatRequestError(requestError, 'Не удалось очистить память.'));
     } finally {
       setIsResetting(false);
       inputRef.current?.focus();
-    }
-  }
-
-  async function handleCheckpoint() {
-    if (isLoading || isBooting || isResetting) {
-      return;
-    }
-
-    setError('');
-    setIsLoading(true);
-
-    try {
-      const response = await fetch('/api/branching/checkpoint', {
-        method: 'POST',
-      });
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Не удалось создать checkpoint.');
-      }
-
-      setBranchingState(data.branchingState ?? branchingState);
-      setMessages((current) => ({
-        ...current,
-        branching: withWelcome(data.branchingMessages, welcomeMessages.branching),
-      }));
-    } catch (requestError) {
-      setError(formatRequestError(requestError, 'Не удалось создать checkpoint.'));
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  async function handleSwitchBranch(branchId) {
-    if (isLoading || isBooting || isResetting || branchId === branchingState.activeBranchId) {
-      return;
-    }
-
-    setError('');
-    setIsLoading(true);
-
-    try {
-      const response = await fetch('/api/branching/active-branch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ branchId }),
-      });
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Не удалось переключить ветку.');
-      }
-
-      setBranchingState(data.branchingState ?? branchingState);
-      setMessages((current) => ({
-        ...current,
-        branching: withWelcome(data.branchingMessages, welcomeMessages.branching),
-      }));
-    } catch (requestError) {
-      setError(formatRequestError(requestError, 'Не удалось переключить ветку.'));
-    } finally {
-      setIsLoading(false);
     }
   }
 
@@ -438,6 +347,37 @@ function App() {
     }));
   }
 
+  async function refreshMemorySnapshot() {
+    const response = await fetch('/api/memory');
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Не удалось обновить память.');
+    }
+
+    setMessages(withWelcome(data.shortTermMessages));
+    setWorkingMemory(data.workingMemory ?? {});
+    setLongTermMemory(data.longTermMemory ?? {});
+  }
+
+  function scheduleMemoryRefresh(attempt = 0) {
+    const delays = [900, 2200, 4200, 7000];
+
+    if (attempt >= delays.length) {
+      return;
+    }
+
+    window.setTimeout(async () => {
+      try {
+        await refreshMemorySnapshot();
+      } catch {
+        return;
+      }
+
+      scheduleMemoryRefresh(attempt + 1);
+    }, delays[attempt]);
+  }
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -445,7 +385,7 @@ function App() {
         component="main"
         sx={{
           background:
-            'linear-gradient(118deg, rgba(15, 107, 95, 0.15) 0%, rgba(238, 243, 241, 0.96) 38%, rgba(138, 90, 0, 0.12) 70%, rgba(53, 89, 166, 0.13) 100%), #eef3f1',
+            'linear-gradient(118deg, rgba(18, 103, 92, 0.15) 0%, rgba(238, 243, 241, 0.96) 38%, rgba(138, 90, 0, 0.12) 70%, rgba(56, 89, 167, 0.13) 100%), #eef3f1',
           minHeight: '100vh',
           p: { xs: 1, md: 2 },
         }}
@@ -455,108 +395,56 @@ function App() {
             display: 'grid',
             gap: 1.25,
             gridTemplateRows: 'auto minmax(0, 1fr) auto',
-            height: { xs: 'auto', xl: 'calc(100vh - 32px)' },
+            height: 'calc(100vh - 32px)',
             maxWidth: 1760,
-            minHeight: { xs: '100vh', xl: 0 },
+            minHeight: 0,
             mx: 'auto',
           }}
         >
-          <Paper
-            component="header"
-            elevation={0}
-            sx={{
-              background: 'rgba(255, 255, 255, 0.96)',
-              border: '1px solid rgba(24, 32, 31, 0.12)',
-              borderRadius: 2,
-              display: 'flex',
-              gap: 1,
-              p: { xs: 1, md: 1 },
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-              <Box
-                sx={{
-                  alignItems: 'center',
-                  background: INK,
-                  borderRadius: 1.2,
-                  color: '#fff8ef',
-                  display: 'inline-flex',
-                  fontSize: '0.84rem',
-                  fontWeight: 780,
-                  gap: 0.7,
-                  lineHeight: 1,
-                  px: 1,
-                  py: 0.75,
-                }}
-              >
-                <MemoryRoundedIcon sx={{ fontSize: 18 }} />
-                AI Advent · День 10
-              </Box>
-              <Typography color="text.secondary" variant="caption">
-                {modelName} · окно {formatNumber(modelContextLimit)} ток.
-              </Typography>
-              <SharedWindowControl
-                disabled={isLoading || isBooting || isResetting}
-                onChange={updateSettings}
-                settings={settings}
-              />
-            </Stack>
-          </Paper>
+          <Header
+            disabled={isLoading || isBooting || isResetting}
+            modelContextLimit={modelContextLimit}
+            modelName={modelName}
+            onChange={updateSettings}
+            preview={preview}
+            settings={settings}
+          />
 
           <Box
             sx={{
               display: 'grid',
               gap: 1.25,
-              gridTemplateColumns: { xs: '1fr', xl: 'repeat(3, minmax(0, 1fr))' },
+              gridTemplateColumns: {
+                xs: '1fr',
+                lg: 'repeat(3, minmax(0, 1fr))',
+              },
+              height: '100%',
               minHeight: 0,
             }}
           >
-            <StrategyPanel
-              accent={STRATEGY_ACCENTS.sliding}
-              icon={<TuneRoundedIcon />}
-              isBooting={isBooting}
-              isLoading={isLoading}
-              messages={messages.sliding}
-              previewReport={preview?.sliding?.tokenReport}
-              stats={preview?.sliding?.stats}
-              subtitle={`Хранит только последние ${settings.lastMessagesCount} сообщений`}
-              title="Sliding Window"
-              welcomeId={welcomeMessages.sliding.id}
+            <MemoryLayerPanel
+              accent={ACCENTS.working}
+              changedKeys={findLatestMemoryChanges(realMessages).workingMemory}
+              icon={<Inventory2RoundedIcon />}
+              labels={MEMORY_LABELS.workingMemory}
+              memory={workingMemory}
+              subtitle="Состояние всей текущей задачи и диалога"
+              title="Working memory"
             />
-            <StrategyPanel
-              accent={STRATEGY_ACCENTS.facts}
-              extraHeader={<FactsBlock facts={facts} />}
-              icon={<FactCheckRoundedIcon />}
+            <ChatPanel
               isBooting={isBooting}
               isLoading={isLoading}
-              messages={messages.facts}
-              previewReport={preview?.facts?.tokenReport}
-              stats={preview?.facts?.stats}
-              subtitle={`Facts + последние ${settings.lastMessagesCount} сообщений`}
-              title="Sticky Facts"
-              welcomeId={welcomeMessages.facts.id}
+              messages={messages}
+              preview={preview}
             />
-            <StrategyPanel
-              accent={STRATEGY_ACCENTS.branching}
-              extraHeader={
-                <BranchControls
-                  branchingState={branchingState}
-                  disabled={isLoading || isBooting || isResetting}
-                  onCheckpoint={handleCheckpoint}
-                  onSwitchBranch={handleSwitchBranch}
-                />
-              }
-              icon={<AccountTreeRoundedIcon />}
-              isBooting={isBooting}
-              isLoading={isLoading}
-              messages={messages.branching}
-              previewReport={preview?.branching?.tokenReport}
-              stats={preview?.branching?.stats}
-              subtitle={`Активная ветка: ${branchingState.activeBranchId}`}
-              title="Branching"
-              welcomeId={welcomeMessages.branching.id}
+            <MemoryLayerPanel
+              accent={ACCENTS.longTerm}
+              changedKeys={findLatestMemoryChanges(realMessages).longTermMemory}
+              icon={<PsychologyRoundedIcon />}
+              labels={MEMORY_LABELS.longTermMemory}
+              memory={longTermMemory}
+              subtitle="То, что переносится между задачами и чатами"
+              title="Long-term memory"
             />
           </Box>
 
@@ -582,7 +470,7 @@ function App() {
               )}
               {isOverflow && !error && (
                 <Alert severity="warning" sx={{ borderRadius: 1.5 }}>
-                  Следующий запрос превышает лимит контекста в одной из стратегий.
+                  Следующий запрос превышает лимит контекста модели.
                 </Alert>
               )}
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
@@ -597,7 +485,7 @@ function App() {
                     setInput(event.target.value);
                     setError('');
                   }}
-                  placeholder="Один запрос уйдет в Sliding, Facts и активную Branching-ветку"
+                  placeholder="Напишите агенту. Он явно выберет, что сохранить в каждый слой памяти."
                   sx={{
                     '& .MuiOutlinedInput-input': {
                       py: 0.65,
@@ -610,28 +498,28 @@ function App() {
                   endIcon={isLoading ? <CircularProgress color="inherit" size={16} /> : <SendRoundedIcon />}
                   sx={{
                     alignSelf: 'stretch',
-                    background: STRATEGY_ACCENTS.sliding,
+                    background: ACCENTS.shortTerm,
                     minHeight: { xs: 40, sm: 42 },
                     minWidth: { xs: '100%', sm: 150 },
                     '&:hover': {
-                      background: '#0b5b51',
+                      background: '#0c584f',
                     },
                   }}
                   type="submit"
                   variant="contained"
                 >
-                  {isLoading ? 'Жду ответы' : 'Отправить'}
+                  {isLoading ? 'Жду ответ' : 'Отправить'}
                 </Button>
               </Stack>
             </Stack>
 
             <Box sx={{ alignSelf: 'end', justifySelf: { xs: 'start', lg: 'end' } }}>
-              <Tooltip title="Очистить все стратегии, facts и ветки">
+              <Tooltip title="Очистить все три слоя памяти">
                 <span>
                   <IconButton
-                    aria-label="Очистить истории"
+                    aria-label="Очистить память"
                     color="error"
-                    disabled={isLoading || isBooting || isResetting || !hasSavedMessages}
+                    disabled={isLoading || isBooting || isResetting || !hasSavedMemory}
                     onClick={handleReset}
                     sx={{
                       background: 'rgba(185, 71, 71, 0.08)',
@@ -652,22 +540,101 @@ function App() {
   );
 }
 
-function StrategyPanel({
-  accent,
-  extraHeader = null,
-  icon,
-  isBooting,
-  isLoading,
-  messages,
-  previewReport,
-  stats,
-  subtitle,
-  title,
-  welcomeId,
-}) {
+function Header({ disabled, modelContextLimit, modelName, onChange, preview, settings }) {
+  return (
+    <Paper
+      component="header"
+      elevation={0}
+      sx={{
+        background: 'rgba(255, 255, 255, 0.96)',
+        border: '1px solid rgba(24, 32, 31, 0.12)',
+        borderRadius: 2,
+        display: 'flex',
+        gap: 1,
+        p: { xs: 1, md: 1 },
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+      }}
+    >
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+        <Box
+          sx={{
+            alignItems: 'center',
+            background: INK,
+            borderRadius: 1.2,
+            color: '#fff8ef',
+            display: 'inline-flex',
+            fontSize: '0.84rem',
+            fontWeight: 780,
+            gap: 0.7,
+            lineHeight: 1,
+            px: 1,
+            py: 0.75,
+          }}
+        >
+          <MemoryRoundedIcon sx={{ fontSize: 18 }} />
+          AI Advent · День 11
+        </Box>
+        <Typography color="text.secondary" variant="caption">
+          {modelName} · окно {formatNumber(modelContextLimit)} ток.
+        </Typography>
+      </Stack>
+      <Stack
+        direction={{ xs: 'column', md: 'row' }}
+        spacing={1}
+        sx={{
+          alignItems: { xs: 'stretch', md: 'center' },
+          flex: { xs: '1 1 100%', lg: '0 1 auto' },
+        }}
+      >
+        <ContextInspector compact preview={preview} settings={settings} />
+        <ShortTermWindowControl disabled={disabled} onChange={onChange} settings={settings} />
+      </Stack>
+    </Paper>
+  );
+}
+
+function ShortTermWindowControl({ disabled, onChange, settings }) {
+  return (
+    <Box
+      sx={{
+        alignItems: 'center',
+        border: '1px solid rgba(24, 32, 31, 0.1)',
+        borderRadius: 1.5,
+        display: 'grid',
+        gap: 0.7,
+        gridTemplateColumns: { xs: '1fr', sm: 'auto 78px' },
+        minWidth: { xs: '100%', sm: 270 },
+        p: 0.65,
+      }}
+    >
+      <Stack direction="row" spacing={0.7} sx={{ alignItems: 'center' }}>
+        <TuneRoundedIcon sx={{ color: ACCENTS.shortTerm, fontSize: 18 }} />
+        <Typography color="text.secondary" fontWeight={780} variant="caption">
+          Short-term окно
+        </Typography>
+      </Stack>
+      <TextField
+        disabled={disabled}
+        fullWidth
+        inputProps={{ 'aria-label': 'Short-term окно', max: 30, min: 2, step: 1 }}
+        onChange={(event) => onChange('shortTermLimit', Number(event.target.value))}
+        sx={{
+          '& .MuiOutlinedInput-input': {
+            py: 0.65,
+          },
+        }}
+        type="number"
+        value={settings.shortTermLimit}
+      />
+    </Box>
+  );
+}
+
+function ChatPanel({ isBooting, isLoading, messages, preview }) {
   const scrollRef = useRef(null);
   const latestUsage = useMemo(() => findLatestUsage(messages), [messages]);
-  const realMessages = removeWelcome(messages, welcomeId);
 
   useLayoutEffect(() => {
     const node = scrollRef.current;
@@ -692,15 +659,15 @@ function StrategyPanel({
         borderRadius: 2,
         boxShadow: '0 20px 56px rgba(24, 32, 31, 0.1)',
         display: 'grid',
-        gridTemplateRows: 'auto auto minmax(0, 1fr)',
-        minHeight: { xs: 560, xl: 0 },
+        gridTemplateRows: 'auto minmax(0, 1fr)',
+        minHeight: { xs: 480, lg: 0 },
         overflow: 'hidden',
       }}
     >
       <Box
         component="header"
         sx={{
-          background: `linear-gradient(135deg, ${withAlpha(accent, 0.14)} 0%, rgba(255,255,255,0.9) 72%)`,
+          background: `linear-gradient(135deg, ${withAlpha(ACCENTS.shortTerm, 0.14)} 0%, rgba(255,255,255,0.9) 72%)`,
           borderBottom: '1px solid rgba(24, 32, 31, 0.1)',
           display: 'grid',
           gap: 0.8,
@@ -710,48 +677,19 @@ function StrategyPanel({
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
           <Stack spacing={0.2} sx={{ minWidth: 0 }}>
             <Stack direction="row" spacing={0.7} sx={{ alignItems: 'center' }}>
-              <Box sx={{ color: accent, display: 'inline-flex' }}>{icon}</Box>
-              <Typography component="h2" sx={{ color: accent }} variant="h2">
-                {title}
+              <HistoryRoundedIcon sx={{ color: ACCENTS.shortTerm }} />
+              <Typography component="h2" sx={{ color: ACCENTS.shortTerm }} variant="h2">
+                Short-term memory
               </Typography>
             </Stack>
             <Typography color="text.secondary" variant="caption">
-              {subtitle}
+              Текущий диалог, который уходит в модель последними сообщениями
             </Typography>
           </Stack>
-          <Box
-            sx={{
-              background: accent,
-              borderRadius: 1,
-              height: 12,
-              width: 12,
-            }}
-          />
+          <Box sx={{ background: ACCENTS.shortTerm, borderRadius: 1, height: 12, width: 12 }} />
         </Stack>
-        {extraHeader}
-        <ContextMeter accent={accent} latestUsage={latestUsage} previewReport={previewReport} />
+        <ContextMeter latestUsage={latestUsage} previewReport={preview?.tokenReport} />
       </Box>
-
-      {stats && (
-        <Stack
-          direction="row"
-          spacing={1}
-          sx={{
-            background: withAlpha(accent, 0.08),
-            borderBottom: '1px solid rgba(24, 32, 31, 0.08)',
-            flexWrap: 'wrap',
-            gap: 0.8,
-            px: 1.25,
-            py: 0.8,
-          }}
-        >
-          <TinyStat label="В запросе" value={formatNumber(stats.sentMessageCount)} />
-          <TinyStat label="Отброшено" value={formatNumber(stats.droppedMessageCount)} />
-          {stats.factsCharacters > 0 && (
-            <TinyStat label="Facts" value={`${formatNumber(stats.factsCharacters)} симв.`} />
-          )}
-        </Stack>
-      )}
 
       <Box
         aria-live="polite"
@@ -767,7 +705,6 @@ function StrategyPanel({
       >
         {messages.map((message, index) => (
           <MessageBubble
-            accent={accent}
             key={message.id}
             message={message}
             requestTokens={findRequestTokensForMessage(messages, index)}
@@ -775,149 +712,143 @@ function StrategyPanel({
         ))}
         {isLoading && (
           <MessageBubble
-            accent={accent}
             isLoading
             message={{
-              id: `${title}-loading`,
+              id: 'memory-loading',
               role: 'agent',
-              text: 'Думаю...',
+              text: 'Думаю и готовлю обновление памяти...',
             }}
           />
         )}
         {isBooting && (
           <MessageBubble
-            accent={accent}
             isLoading
             message={{
-              id: `${title}-booting`,
+              id: 'memory-booting',
               role: 'agent',
-              text: 'Загружаю историю...',
+              text: 'Загружаю память...',
             }}
           />
-        )}
-        {realMessages.length === 0 && !isBooting && (
-          <Typography color="text.secondary" sx={{ px: 0.5 }} variant="caption">
-            Начните диалог, чтобы увидеть поведение стратегии.
-          </Typography>
         )}
       </Box>
     </Paper>
   );
 }
 
-function SharedWindowControl({ disabled, onChange, settings }) {
+function MemoryLayerPanel({ accent, changedKeys = [], icon, labels, memory, subtitle, title }) {
   return (
-    <Box
+    <Paper
+      component="section"
+      elevation={0}
       sx={{
-        alignItems: 'center',
-        border: '1px solid rgba(24, 32, 31, 0.1)',
-        borderRadius: 1.5,
+        background: '#ffffff',
+        border: '1px solid rgba(24, 32, 31, 0.13)',
+        borderRadius: 2,
         display: 'grid',
-        gap: 0.7,
-        gridTemplateColumns: { xs: '1fr', sm: 'auto 78px' },
-        minWidth: { xs: '100%', sm: 270 },
-        p: 0.65,
+        gridTemplateRows: 'auto minmax(0, 1fr)',
+        minHeight: { xs: 420, lg: 0 },
+        overflow: 'hidden',
       }}
     >
-      <Stack direction="row" spacing={0.7} sx={{ alignItems: 'center' }}>
-        <TuneRoundedIcon sx={{ color: STRATEGY_ACCENTS.sliding, fontSize: 18 }} />
-        <Typography color="text.secondary" fontWeight={780} variant="caption">
-          Окно Sliding + Facts
-        </Typography>
-      </Stack>
-      <TextField
-        disabled={disabled}
-        fullWidth
-        inputProps={{ 'aria-label': 'Окно Sliding + Facts', max: 30, min: 2, step: 1 }}
-        onChange={(event) => onChange('lastMessagesCount', Number(event.target.value))}
+      <Box
+        component="header"
         sx={{
-          '& .MuiOutlinedInput-input': {
-            py: 0.65,
-          },
+          background: `linear-gradient(135deg, ${withAlpha(accent, 0.13)} 0%, rgba(255,255,255,0.9) 72%)`,
+          borderBottom: '1px solid rgba(24, 32, 31, 0.1)',
+          p: { xs: 1.1, md: 1.25 },
         }}
-        type="number"
-        value={settings.lastMessagesCount}
-      />
-    </Box>
-  );
-}
+      >
+        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+          <Box sx={{ color: accent, display: 'inline-flex' }}>{icon}</Box>
+          <Stack spacing={0.2} sx={{ minWidth: 0 }}>
+            <Typography component="h2" sx={{ color: accent }} variant="h2">
+              {title}
+            </Typography>
+            <Typography color="text.secondary" variant="caption">
+              {subtitle}
+            </Typography>
+          </Stack>
+        </Stack>
+      </Box>
+      <Stack
+        spacing={0.7}
+        sx={{
+          minHeight: 0,
+          overflowY: 'auto',
+          p: { xs: 1.1, md: 1.25 },
+        }}
+      >
+        {Object.entries(labels).map(([key, label]) => {
+          const changed = changedKeys.includes(key);
 
-function FactsBlock({ facts }) {
-  return (
-    <Box
-      sx={{
-        background: 'rgba(255,255,255,0.72)',
-        border: '1px solid rgba(24, 32, 31, 0.1)',
-        borderRadius: 1.5,
-        display: 'grid',
-        gap: 0.45,
-        maxHeight: 154,
-        overflowY: 'auto',
-        p: 0.9,
-      }}
-    >
-      {Object.entries(FACT_LABELS).map(([key, label]) => (
-        <Typography key={key} sx={{ overflowWrap: 'anywhere' }} variant="caption">
-          <Box component="span" sx={{ color: STRATEGY_ACCENTS.facts, fontWeight: 780 }}>
-            {label}:
-          </Box>{' '}
-          {facts?.[key] || '—'}
-        </Typography>
-      ))}
-    </Box>
-  );
-}
-
-function BranchControls({ branchingState, disabled, onCheckpoint, onSwitchBranch }) {
-  const hasCheckpoint = Boolean(branchingState.checkpointAt);
-
-  return (
-    <Box
-      sx={{
-        background: 'rgba(255,255,255,0.72)',
-        border: '1px solid rgba(24, 32, 31, 0.1)',
-        borderRadius: 1.5,
-        display: 'grid',
-        gap: 0.8,
-        p: 0.9,
-      }}
-    >
-      <Stack direction="row" spacing={0.8} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-        <Button
-          disabled={disabled}
-          onClick={onCheckpoint}
-          startIcon={<BookmarkAddRoundedIcon />}
-          variant="outlined"
-        >
-          Checkpoint
-        </Button>
-        <Button
-          disabled={disabled || !hasCheckpoint || branchingState.activeBranchId === 'A'}
-          onClick={() => onSwitchBranch('A')}
-          startIcon={<SwapHorizRoundedIcon />}
-          variant={branchingState.activeBranchId === 'A' ? 'contained' : 'outlined'}
-        >
-          A
-        </Button>
-        <Button
-          disabled={disabled || !hasCheckpoint || branchingState.activeBranchId === 'B'}
-          onClick={() => onSwitchBranch('B')}
-          startIcon={<SwapHorizRoundedIcon />}
-          variant={branchingState.activeBranchId === 'B' ? 'contained' : 'outlined'}
-        >
-          B
-        </Button>
+          return (
+            <Box
+              key={key}
+              sx={{
+                border: `1px solid ${changed ? withAlpha(accent, 0.38) : 'rgba(24, 32, 31, 0.09)'}`,
+                borderRadius: 1.25,
+                p: 0.85,
+              }}
+            >
+              <Stack direction="row" spacing={0.7} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography sx={{ color: accent, fontWeight: 780 }} variant="caption">
+                  {label}
+                </Typography>
+                {changed && (
+                  <Typography color="text.secondary" variant="caption">
+                    saved
+                  </Typography>
+                )}
+              </Stack>
+              <Typography sx={{ mt: 0.35, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }} variant="body2">
+                {formatMemoryValue(memory?.[key]) || '—'}
+              </Typography>
+            </Box>
+          );
+        })}
       </Stack>
-      <Typography color="text.secondary" variant="caption">
-        {hasCheckpoint
-          ? `Checkpoint: ${branchingState.checkpointMessageCount} сообщ., ${formatDateTime(branchingState.checkpointAt)}`
-          : 'Checkpoint еще не создан.'}
-      </Typography>
-    </Box>
+    </Paper>
   );
 }
 
-function ContextMeter({ accent, latestUsage, previewReport }) {
+function ContextInspector({ compact = false, preview, settings }) {
+  const stats = preview?.stats;
+
+  return (
+    <Paper
+      component="section"
+      elevation={0}
+      sx={{
+        background: compact ? 'rgba(255,255,255,0.68)' : '#ffffff',
+        border: '1px solid rgba(24, 32, 31, 0.13)',
+        borderRadius: compact ? 1.5 : 2,
+        minWidth: { xs: '100%', md: compact ? 520 : 'auto' },
+        p: compact ? 0.75 : { xs: 1.1, md: 1.25 },
+      }}
+    >
+      <Stack spacing={compact ? 0.45 : 0.85}>
+        <Stack direction="row" spacing={0.7} sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 0.75 }}>
+          <MemoryRoundedIcon sx={{ color: INK, fontSize: compact ? 18 : 20 }} />
+          <Typography component="h2" sx={{ fontWeight: 780 }} variant={compact ? 'caption' : 'h2'}>
+            Context payload
+          </Typography>
+          <TinyStat label="Short-term limit" value={formatNumber(settings.shortTermLimit)} />
+          <TinyStat label="Short-term sent" value={formatNumber(stats?.shortTermSentCount)} />
+          <TinyStat label="Dropped" value={formatNumber(stats?.shortTermDroppedCount)} />
+          <TinyStat label="Working chars" value={formatNumber(stats?.workingMemoryCharacters)} />
+          <TinyStat label="Long-term chars" value={formatNumber(stats?.longTermMemoryCharacters)} />
+        </Stack>
+        {!compact && (
+          <Typography color="text.secondary" variant="caption">
+            Порядок отправки: system prompt → long-term → working → recent short-term → текущий ввод.
+          </Typography>
+        )}
+      </Stack>
+    </Paper>
+  );
+}
+
+function ContextMeter({ latestUsage, previewReport }) {
   const report = previewReport ?? latestUsage?.tokenReport;
   const usedTokens = report?.context?.inputTokens ?? report?.fullInputTokens ?? 0;
   const limit = report?.context?.contextWindow ?? DEFAULT_MODEL_CONTEXT_LIMIT;
@@ -931,7 +862,7 @@ function ContextMeter({ accent, latestUsage, previewReport }) {
           borderRadius: 1,
           height: 7,
           '& .MuiLinearProgress-bar': {
-            background: accent,
+            background: ACCENTS.shortTerm,
             borderRadius: 1,
           },
         }}
@@ -943,14 +874,14 @@ function ContextMeter({ accent, latestUsage, previewReport }) {
           input: {formatNumber(usedTokens)} ток.
         </Typography>
         <Typography color="text.secondary" variant="caption">
-          история: {formatNumber(report?.conversationHistoryTokens)} ток.
+          память+история: {formatNumber(report?.conversationHistoryTokens)} ток.
         </Typography>
       </Stack>
     </Stack>
   );
 }
 
-function MessageBubble({ accent, message, isLoading = false, requestTokens = null }) {
+function MessageBubble({ message, isLoading = false, requestTokens = null }) {
   const isUser = message.role === 'user';
 
   return (
@@ -960,11 +891,13 @@ function MessageBubble({ accent, message, isLoading = false, requestTokens = nul
       sx={{
         alignSelf: isUser ? 'flex-end' : 'flex-start',
         background: isUser
-          ? `linear-gradient(135deg, ${withAlpha(accent, 0.16)} 0%, rgba(255,255,255,0.92) 100%)`
+          ? `linear-gradient(135deg, ${withAlpha(ACCENTS.shortTerm, 0.16)} 0%, rgba(255,255,255,0.92) 100%)`
           : 'linear-gradient(180deg, #ffffff 0%, #f7faf8 100%)',
         border: '1px solid rgba(24, 32, 31, 0.1)',
         borderRadius: 2,
-        boxShadow: isUser ? `0 14px 30px ${withAlpha(accent, 0.09)}` : '0 14px 30px rgba(24, 32, 31, 0.07)',
+        boxShadow: isUser
+          ? `0 14px 30px ${withAlpha(ACCENTS.shortTerm, 0.09)}`
+          : '0 14px 30px rgba(24, 32, 31, 0.07)',
         maxWidth: { xs: '100%', md: '88%' },
         px: 1,
         py: 0.9,
@@ -972,7 +905,7 @@ function MessageBubble({ accent, message, isLoading = false, requestTokens = nul
     >
       <Stack spacing={0.55}>
         <Stack direction="row" spacing={0.6} sx={{ alignItems: 'center' }}>
-          <Box aria-hidden="true" sx={{ background: accent, borderRadius: 1, height: 8, width: 8 }} />
+          <Box aria-hidden="true" sx={{ background: ACCENTS.shortTerm, borderRadius: 1, height: 8, width: 8 }} />
           <Typography color="text.secondary" fontWeight={760} variant="caption">
             {isUser ? 'Вы' : 'Агент'}
           </Typography>
@@ -991,17 +924,27 @@ function MessageBubble({ accent, message, isLoading = false, requestTokens = nul
 }
 
 function MessageStats({ metadata }) {
-  const { model, usage } = metadata;
+  const { model, usage, memoryChanges } = metadata;
   const items = [
-    metadata.strategy || 'strategy',
+    'memory-layers',
     model || 'unknown',
     `input: ${formatNumber(usage?.inputTokens)} ток.`,
     `output: ${formatNumber(usage?.outputTokens)} ток.`,
     formatCost(usage?.cost),
   ];
+  const working = memoryChanges?.workingMemory ?? [];
+  const longTerm = memoryChanges?.longTermMemory ?? [];
 
-  if (metadata.branchId) {
-    items.push(`branch: ${metadata.branchId}`);
+  if (working.length > 0) {
+    items.push(`working: ${working.join(', ')}`);
+  }
+
+  if (longTerm.length > 0) {
+    items.push(`long-term: ${longTerm.join(', ')}`);
+  }
+
+  if (working.length === 0 && longTerm.length === 0) {
+    items.push('память без изменений');
   }
 
   return <MessageMetaLine items={items} />;
@@ -1042,20 +985,28 @@ function TinyStat({ label, value }) {
   );
 }
 
-function withWelcome(strategyMessages, welcomeMessage) {
-  return Array.isArray(strategyMessages) && strategyMessages.length > 0 ? strategyMessages : [welcomeMessage];
+function withWelcome(shortTermMessages) {
+  return Array.isArray(shortTermMessages) && shortTermMessages.length > 0
+    ? shortTermMessages
+    : [welcomeMessage];
 }
 
-function hasRealMessages(strategyMessages, welcomeId) {
-  return removeWelcome(strategyMessages, welcomeId).length > 0;
-}
-
-function removeWelcome(strategyMessages, welcomeId) {
-  return strategyMessages.filter((message) => message.id !== welcomeId);
+function removeWelcome(strategyMessages) {
+  return strategyMessages.filter((message) => message.id !== welcomeMessage.id);
 }
 
 function findLatestUsage(strategyMessages) {
   return [...strategyMessages].reverse().find((message) => message.metadata?.usage)?.metadata?.usage || null;
+}
+
+function findLatestMemoryChanges(strategyMessages) {
+  return (
+    [...strategyMessages].reverse().find((message) => message.metadata?.memoryChanges)?.metadata
+      ?.memoryChanges || {
+      workingMemory: [],
+      longTermMemory: [],
+    }
+  );
 }
 
 function findRequestTokensForMessage(strategyMessages, index) {
@@ -1068,6 +1019,33 @@ function findRequestTokensForMessage(strategyMessages, index) {
   const nextAgentMessage = strategyMessages.slice(index + 1).find((item) => item.role === 'agent');
 
   return nextAgentMessage?.metadata?.usage?.tokenReport?.currentRequestTokens ?? null;
+}
+
+function hasMemoryValues(memory) {
+  return Object.values(memory ?? {}).some((value) => typeof value === 'string' && value.trim());
+}
+
+function formatMemoryValue(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => formatMemoryValue(item)).filter(Boolean).join('; ');
+  }
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (value == null) {
+    return '';
+  }
+
+  if (typeof value === 'object') {
+    return Object.entries(value)
+      .filter(([, nestedValue]) => nestedValue != null && nestedValue !== '')
+      .map(([nestedKey, nestedValue]) => `${nestedKey}: ${formatMemoryValue(nestedValue)}`)
+      .join('; ');
+  }
+
+  return String(value);
 }
 
 function formatNumber(value) {
@@ -1093,19 +1071,6 @@ function formatCost(cost) {
     minimumFractionDigits: 4,
     maximumFractionDigits: 6,
   }).format(cost.estimatedUsd);
-}
-
-function formatDateTime(value) {
-  if (!value) {
-    return '—';
-  }
-
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    month: '2-digit',
-  }).format(new Date(value));
 }
 
 function formatRequestError(error, fallback) {

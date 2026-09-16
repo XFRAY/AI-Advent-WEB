@@ -112,3 +112,34 @@ test('MessageStore saves fixed Sticky Facts keys', () => {
   assert.equal(facts.preferences, '');
   assert.deepEqual(store.getFacts(), facts);
 });
+
+test('MessageStore keeps short-term, working, and long-term memory separately', () => {
+  const databasePath = path.join(
+    os.tmpdir(),
+    `ai-advent-message-store-memory-${Date.now()}-${Math.random()}.sqlite`,
+  );
+  const store = new MessageStore({ databasePath });
+
+  store.addShortTermMessage({ role: 'user', text: 'Current dialogue message' });
+  const workingMemory = store.saveWorkingMemory({
+    goal: 'Implement Day 11',
+    taskData: 'Memory layer demo',
+  });
+  const longTermMemory = store.saveLongTermMemory({
+    profile: 'Builds AI Advent projects',
+    preferences: 'Russian interface',
+  });
+
+  assert.deepEqual(
+    store.getShortTermMessages().map((message) => message.text),
+    ['Current dialogue message'],
+  );
+  assert.equal(workingMemory.goal, 'Implement Day 11');
+  assert.equal(workingMemory.taskData, 'Memory layer demo');
+  assert.equal(workingMemory.constraints, '');
+  assert.equal(longTermMemory.profile, 'Builds AI Advent projects');
+  assert.equal(longTermMemory.preferences, 'Russian interface');
+  assert.equal(longTermMemory.decisions, '');
+  assert.equal(store.getWorkingMemory().goal, 'Implement Day 11');
+  assert.equal(store.getLongTermMemory().profile, 'Builds AI Advent projects');
+});

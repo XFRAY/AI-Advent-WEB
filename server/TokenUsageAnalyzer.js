@@ -1,4 +1,4 @@
-const DEFAULT_MODEL = 'gpt-4o-mini';
+const DEFAULT_MODEL = 'gpt-4o';
 const TOKEN_COUNT_ENDPOINT = 'https://api.openai.com/v1/responses/input_tokens';
 const NEAR_LIMIT_RATIO = 0.85;
 

@@ -7,96 +7,123 @@ import { createApp } from './index.js';
 import { LlmAgent } from './LlmAgent.js';
 import { MessageStore } from './MessageStore.js';
 
-test('API compares the three Day 10 strategies with a mocked model', async () => {
+test('API stores explicit memory layers with a mocked model', async () => {
   const { baseUrl, calls, close } = await startTestServer();
 
   try {
-    const response = await fetch(`${baseUrl}/api/chat/compare`, {
+    const firstResponse = await fetch(`${baseUrl}/api/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        message: 'Цель: собрать ТЗ без summary.',
+        message: 'Цель: сделать 11 день. Я предпочитаю короткие ответы.',
         settings: {
-          lastMessagesCount: 2,
+          shortTermLimit: 4,
         },
       }),
     });
-    const data = await response.json();
+    const first = await firstResponse.json();
 
-    assert.equal(response.status, 200);
-    assert.equal(data.sliding.messages.length, 2);
-    assert.equal(data.facts.facts.goal, 'Mock goal');
-    assert.equal(data.branching.branchingState.activeBranchId, 'main');
-    assert.equal(data.comparison.sliding.fullInputTokens, 20);
-    assert.equal(data.comparison.facts.fullInputTokens, 20);
-    assert.equal(data.comparison.branching.fullInputTokens, 20);
+    assert.equal(firstResponse.status, 200);
+    assert.equal(first.shortTermMessages.length, 2);
+    assert.equal(first.memoryUpdateStatus, 'pending');
 
-    const factsAnswerCallIndex = calls.findIndex((call) =>
-      call.input.some((item) => item.content?.startsWith('Sticky facts from earlier conversation')),
-    );
-    const factsExtractionCallIndex = calls.findIndex((call) =>
-      call.input[0]?.content?.startsWith('Extract durable key-value facts'),
-    );
-    const factsAnswerCall = calls[factsAnswerCallIndex];
-    const stickyFactsInput = factsAnswerCall.input.find((item) =>
-      item.content?.startsWith('Sticky facts from earlier conversation'),
+    const memoryAfterFirst = await waitForMemory(baseUrl, (memoryData) =>
+      memoryData.workingMemory?.goal === 'Mock working goal',
     );
 
-    assert.ok(factsAnswerCallIndex >= 0);
-    assert.ok(factsExtractionCallIndex > factsAnswerCallIndex);
-    assert.match(stickyFactsInput.content, /No facts captured yet/);
-    assert.doesNotMatch(stickyFactsInput.content, /Mock goal/);
+    assert.equal(memoryAfterFirst.workingMemory.goal, 'Mock working goal');
+    assert.equal(memoryAfterFirst.longTermMemory.preferences, 'Mock durable preference');
+
+    await fetch(`${baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: 'Что ты помнишь?',
+        settings: {
+          shortTermLimit: 4,
+        },
+      }),
+    });
+
+    const secondAnswerCall = calls.filter((call) => call.kind === 'answer').at(-1);
+    const longTermInput = secondAnswerCall.input.find((item) =>
+      item.content?.startsWith('Long-term memory'),
+    );
+    const workingInput = secondAnswerCall.input.find((item) =>
+      item.content?.startsWith('Working memory'),
+    );
+
+    assert.match(longTermInput.content, /Mock durable preference/);
+    assert.match(workingInput.content, /Mock working goal/);
+    assert.ok(
+      secondAnswerCall.input.findIndex((item) => item.content?.startsWith('Long-term memory')) <
+        secondAnswerCall.input.findIndex((item) => item.content?.startsWith('Working memory')),
+    );
   } finally {
     await close();
   }
 });
 
-test('API creates and switches Branching checkpoint branches', async () => {
+test('API clears all Day 11 memory layers', async () => {
   const { baseUrl, close } = await startTestServer();
 
   try {
-    await fetch(`${baseUrl}/api/chat/compare`, {
+    await fetch(`${baseUrl}/api/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        message: 'Common setup',
-        settings: {
-          lastMessagesCount: 4,
-        },
+        message: 'Save something',
       }),
     });
 
-    const checkpointResponse = await fetch(`${baseUrl}/api/branching/checkpoint`, {
-      method: 'POST',
+    const clearResponse = await fetch(`${baseUrl}/api/memory`, {
+      method: 'DELETE',
     });
-    const checkpoint = await checkpointResponse.json();
+    const cleared = await clearResponse.json();
 
-    assert.equal(checkpoint.branchingState.activeBranchId, 'A');
-    assert.equal(checkpoint.branchingMessages.length, 2);
+    assert.equal(clearResponse.status, 200);
+    assert.deepEqual(cleared.shortTermMessages, []);
+    assert.equal(cleared.workingMemory.goal, '');
+    assert.equal(cleared.longTermMemory.preferences, '');
 
-    const switchResponse = await fetch(`${baseUrl}/api/branching/active-branch`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ branchId: 'B' }),
-    });
-    const switched = await switchResponse.json();
+    await sleep(20);
 
-    assert.equal(switchResponse.status, 200);
-    assert.equal(switched.branchingState.activeBranchId, 'B');
-    assert.deepEqual(
-      switched.branchingMessages.map((message) => message.text),
-      ['Common setup', 'Mock answer'],
-    );
+    const memoryResponse = await fetch(`${baseUrl}/api/memory`);
+    const memory = await memoryResponse.json();
+
+    assert.equal(memory.workingMemory.goal, '');
+    assert.equal(memory.longTermMemory.preferences, '');
   } finally {
     await close();
   }
 });
+
+async function waitForMemory(baseUrl, predicate) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const response = await fetch(`${baseUrl}/api/memory`);
+    const data = await response.json();
+
+    if (predicate(data)) {
+      return data;
+    }
+
+    await sleep(10);
+  }
+
+  throw new Error('Timed out waiting for memory update');
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
 
 async function startTestServer() {
   const databasePath = path.join(
@@ -109,17 +136,24 @@ async function startTestServer() {
   agent.client = {
     responses: {
       create: async ({ input }) => {
-        calls.push({ input });
+        if (input[0]?.content?.startsWith('Update an explicit memory model')) {
+          calls.push({ kind: 'memory', input });
 
-        if (input[0]?.content?.startsWith('Extract durable key-value facts')) {
           return {
             output_text: JSON.stringify({
-              goal: 'Mock goal',
-              constraints: 'Mock constraints',
-              preferences: '',
-              decisions: '',
-              openQuestions: '',
-              agreements: '',
+              workingMemory: {
+                goal: 'Mock working goal',
+                taskData: 'Mock task data',
+                constraints: '',
+                openQuestions: '',
+                nextSteps: '',
+              },
+              longTermMemory: {
+                profile: '',
+                preferences: 'Mock durable preference',
+                decisions: 'Mock durable decision',
+                knowledge: '',
+              },
             }),
             usage: {
               input_tokens: 8,
@@ -128,6 +162,8 @@ async function startTestServer() {
             },
           };
         }
+
+        calls.push({ kind: 'answer', input });
 
         return {
           output_text: 'Mock answer',
