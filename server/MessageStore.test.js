@@ -143,3 +143,48 @@ test('MessageStore keeps short-term, working, and long-term memory separately', 
   assert.equal(store.getWorkingMemory().goal, 'Implement Day 11');
   assert.equal(store.getLongTermMemory().profile, 'Builds AI Advent projects');
 });
+
+test('MessageStore seeds, edits, switches, and preserves user profiles', () => {
+  const databasePath = path.join(
+    os.tmpdir(),
+    `ai-advent-message-store-profiles-${Date.now()}-${Math.random()}.sqlite`,
+  );
+  const store = new MessageStore({ databasePath });
+
+  assert.equal(store.getProfiles().length, 2);
+  assert.equal(store.getActiveProfile().id, 'concise-business');
+
+  const updated = store.updateUserProfile('detailed-learning', {
+    style: 'Объяснять особенно подробно',
+  });
+  const active = store.setActiveProfile('detailed-learning');
+
+  assert.equal(updated.style, 'Объяснять особенно подробно');
+  assert.equal(active.id, 'detailed-learning');
+  assert.equal(store.getProfiles().filter((profile) => profile.isActive).length, 1);
+
+  store.clearMemory();
+  assert.equal(store.getProfiles().length, 2);
+  assert.equal(store.getActiveProfile().id, 'detailed-learning');
+});
+
+test('MessageStore persists and clears profile comparison history', () => {
+  const databasePath = path.join(
+    os.tmpdir(),
+    `ai-advent-message-store-comparisons-${Date.now()}-${Math.random()}.sqlite`,
+  );
+  const store = new MessageStore({ databasePath });
+
+  store.addProfileComparison({
+    question: 'What is an event loop?',
+    results: [{ profile: { id: 'concise-business' }, answer: 'Short answer' }],
+  });
+
+  assert.equal(store.getProfileComparisons().length, 1);
+  assert.equal(store.getProfileComparisons()[0].question, 'What is an event loop?');
+  assert.equal(store.getProfileComparisons()[0].results[0].answer, 'Short answer');
+
+  store.clearProfileComparisons();
+  assert.deepEqual(store.getProfileComparisons(), []);
+  assert.equal(store.getProfiles().length, 2);
+});

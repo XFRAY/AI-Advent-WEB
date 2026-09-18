@@ -30,6 +30,26 @@ const DEFAULT_LONG_TERM_MEMORY = {
   decisions: '',
   knowledge: '',
 };
+const DEFAULT_USER_PROFILES = [
+  {
+    id: 'concise-business',
+    name: 'Краткий деловой',
+    description: 'Для быстрых рабочих решений без лишних отступлений.',
+    style: 'Деловой, прямой и спокойный.',
+    format: 'Короткий ответ; списки только когда они улучшают сканирование.',
+    constraints: 'Не повторять вопрос. Не добавлять вводные фразы и лишние детали.',
+    isActive: true,
+  },
+  {
+    id: 'detailed-learning',
+    name: 'Подробный учебный',
+    description: 'Для изучения темы с объяснением логики и примерами.',
+    style: 'Доброжелательный преподаватель, объясняющий термины простым языком.',
+    format: 'Структурированный ответ с шагами, пояснениями и коротким примером.',
+    constraints: 'Не пропускать важные причинно-следственные связи. Проверять понимание терминов.',
+    isActive: false,
+  },
+];
 const DEFAULT_BRANCHING_STATE = {
   activeBranchId: 'main',
   checkpointAt: null,
@@ -127,6 +147,31 @@ export class MessageStore {
         )`,
       )
       .run();
+    this.database
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS user_profiles (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          style TEXT NOT NULL DEFAULT '',
+          format TEXT NOT NULL DEFAULT '',
+          constraints TEXT NOT NULL DEFAULT '',
+          is_active INTEGER NOT NULL DEFAULT 0 CHECK (is_active IN (0, 1)),
+          updated_at TEXT NOT NULL
+        )`,
+      )
+      .run();
+    this.database
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS profile_comparisons (
+          id TEXT PRIMARY KEY,
+          question TEXT NOT NULL,
+          results_json TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        )`,
+      )
+      .run();
+    this.seedUserProfiles();
     this.database
       .prepare(
         'CREATE INDEX IF NOT EXISTS idx_messages_mode_branch_created_at ON messages (mode, branch_id, created_at)',
@@ -238,6 +283,49 @@ export class MessageStore {
          memory_json = excluded.memory_json,
          updated_at = excluded.updated_at`,
     );
+    this.selectProfiles = this.database.prepare(
+      `SELECT id, name, description, style, format, constraints, is_active, updated_at
+       FROM user_profiles
+       ORDER BY rowid ASC`,
+    );
+    this.selectProfile = this.database.prepare(
+      `SELECT id, name, description, style, format, constraints, is_active, updated_at
+       FROM user_profiles
+       WHERE id = @id`,
+    );
+    this.selectActiveProfile = this.database.prepare(
+      `SELECT id, name, description, style, format, constraints, is_active, updated_at
+       FROM user_profiles
+       WHERE is_active = 1
+       ORDER BY rowid ASC
+       LIMIT 1`,
+    );
+    this.updateProfile = this.database.prepare(
+      `UPDATE user_profiles
+       SET name = @name,
+           description = @description,
+           style = @style,
+           format = @format,
+           constraints = @constraints,
+           updated_at = @updatedAt
+       WHERE id = @id`,
+    );
+    this.deactivateProfiles = this.database.prepare('UPDATE user_profiles SET is_active = 0');
+    this.activateProfile = this.database.prepare(
+      `UPDATE user_profiles
+       SET is_active = 1, updated_at = @updatedAt
+       WHERE id = @id`,
+    );
+    this.selectProfileComparisons = this.database.prepare(
+      `SELECT id, question, results_json, created_at
+       FROM profile_comparisons
+       ORDER BY created_at ASC, rowid ASC`,
+    );
+    this.insertProfileComparison = this.database.prepare(
+      `INSERT INTO profile_comparisons (id, question, results_json, created_at)
+       VALUES (@id, @question, @resultsJson, @createdAt)`,
+    );
+    this.deleteProfileComparisons = this.database.prepare('DELETE FROM profile_comparisons');
     this.selectBranchingState = this.database.prepare(
       `SELECT active_branch_id, checkpoint_at, checkpoint_message_count,
               checkpoint_source_branch_id, branch_labels_json, updated_at
@@ -484,6 +572,87 @@ export class MessageStore {
     return normalizedMemory;
   }
 
+  getProfiles() {
+    return this.selectProfiles.all().map(mapProfileRow);
+  }
+
+  getActiveProfile() {
+    const row = this.selectActiveProfile.get();
+
+    return row ? mapProfileRow(row) : null;
+  }
+
+  updateUserProfile(id, updates = {}) {
+    const existing = this.selectProfile.get({ id });
+
+    if (!existing) {
+      return null;
+    }
+
+    const current = mapProfileRow(existing);
+    const next = {
+      ...current,
+      name: normalizeProfileValue(updates.name, current.name),
+      description: normalizeProfileValue(updates.description, current.description),
+      style: normalizeProfileValue(updates.style, current.style),
+      format: normalizeProfileValue(updates.format, current.format),
+      constraints: normalizeProfileValue(updates.constraints, current.constraints),
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (!next.name) {
+      throw new Error('Profile name cannot be empty');
+    }
+
+    this.updateProfile.run(next);
+    return mapProfileRow(this.selectProfile.get({ id }));
+  }
+
+  setActiveProfile(id) {
+    if (!this.selectProfile.get({ id })) {
+      return null;
+    }
+
+    const transaction = this.database.transaction(() => {
+      this.deactivateProfiles.run();
+      this.activateProfile.run({ id, updatedAt: new Date().toISOString() });
+    });
+    transaction();
+
+    return this.getActiveProfile();
+  }
+
+  getProfileComparisons() {
+    return this.selectProfileComparisons.all().map((row) => ({
+      id: row.id,
+      question: row.question,
+      results: this.parseMetadata(row.results_json) ?? [],
+      createdAt: row.created_at,
+    }));
+  }
+
+  addProfileComparison({ question, results }) {
+    const comparison = {
+      id: randomUUID(),
+      question,
+      results,
+      createdAt: new Date().toISOString(),
+    };
+
+    this.insertProfileComparison.run({
+      id: comparison.id,
+      question: comparison.question,
+      resultsJson: JSON.stringify(comparison.results),
+      createdAt: comparison.createdAt,
+    });
+
+    return comparison;
+  }
+
+  clearProfileComparisons() {
+    this.deleteProfileComparisons.run();
+  }
+
   getFacts() {
     const row = this.selectFacts.get({ id: 'default' });
 
@@ -638,6 +807,30 @@ export class MessageStore {
     }
   }
 
+  seedUserProfiles() {
+    const insert = this.database.prepare(
+      `INSERT OR IGNORE INTO user_profiles (
+        id, name, description, style, format, constraints, is_active, updated_at
+      ) VALUES (
+        @id, @name, @description, @style, @format, @constraints, @isActive, @updatedAt
+      )`,
+    );
+    const hasActiveProfile = this.database
+      .prepare('SELECT 1 FROM user_profiles WHERE is_active = 1 LIMIT 1')
+      .get();
+    const transaction = this.database.transaction(() => {
+      DEFAULT_USER_PROFILES.forEach((profile, index) => {
+        insert.run({
+          ...profile,
+          isActive: hasActiveProfile ? 0 : Number(index === 0),
+          updatedAt: new Date().toISOString(),
+        });
+      });
+    });
+
+    transaction();
+  }
+
   assertMode(mode) {
     if (!ALLOWED_MODES.has(mode)) {
       throw new Error(`Unsupported message mode: ${mode}`);
@@ -715,3 +908,26 @@ function parseMemoryJson(memoryJson) {
 }
 
 export { DEFAULT_WORKING_MEMORY, DEFAULT_LONG_TERM_MEMORY };
+
+function mapProfileRow(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    style: row.style,
+    format: row.format,
+    constraints: row.constraints,
+    isActive: Boolean(row.is_active),
+    updatedAt: row.updated_at,
+  };
+}
+
+function normalizeProfileValue(value, fallback = '') {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  return formatMemoryValue(value).trim();
+}
+
+export { DEFAULT_USER_PROFILES };

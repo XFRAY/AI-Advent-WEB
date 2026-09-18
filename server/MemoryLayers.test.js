@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   MemoryLayers,
   normalizeLongTermMemory,
+  normalizeUserProfile,
   normalizeWorkingMemory,
 } from './MemoryLayers.js';
 
@@ -41,7 +42,21 @@ test('MemoryLayers normalizes fixed working and long-term keys', () => {
   );
 });
 
-test('MemoryLayers builds context in long-term, working, short-term order', () => {
+test('MemoryLayers normalizes user profiles with safe defaults', () => {
+  assert.deepEqual(normalizeUserProfile({ name: 'Учебный', constraints: ['Без жаргона'] }), {
+    id: '',
+    name: 'Учебный',
+    description: '',
+    style: '',
+    format: '',
+    constraints: 'Без жаргона',
+    isActive: false,
+    updatedAt: null,
+  });
+  assert.equal(normalizeUserProfile(null).name, '');
+});
+
+test('MemoryLayers builds context in profile, long-term, working, short-term order', () => {
   const memory = new MemoryLayers({ model: 'gpt-5-nano' });
   const prepared = memory.previewContext({
     shortTermMessages,
@@ -58,21 +73,41 @@ test('MemoryLayers builds context in long-term, working, short-term order', () =
       decisions: '',
       knowledge: '',
     },
+    activeProfile: {
+      id: 'learning',
+      name: 'Learning',
+      style: 'Explain carefully',
+      isActive: true,
+    },
     settings: {
       shortTermLimit: 2,
     },
   });
 
-  assert.match(prepared.conversationHistoryInput[0].content, /Long-term memory/);
-  assert.match(prepared.conversationHistoryInput[0].content, /Russian UI/);
-  assert.match(prepared.conversationHistoryInput[1].content, /Working memory/);
-  assert.match(prepared.conversationHistoryInput[1].content, /Ship Day 11/);
-  assert.deepEqual(prepared.conversationHistoryInput.slice(2), [
+  assert.match(prepared.conversationHistoryInput[0].content, /Active user profile/);
+  assert.match(prepared.conversationHistoryInput[0].content, /Explain carefully/);
+  assert.match(prepared.conversationHistoryInput[0].content, /latest user message/);
+  assert.match(prepared.conversationHistoryInput[1].content, /Long-term memory/);
+  assert.match(prepared.conversationHistoryInput[1].content, /Russian UI/);
+  assert.match(prepared.conversationHistoryInput[2].content, /Working memory/);
+  assert.match(prepared.conversationHistoryInput[2].content, /Ship Day 11/);
+  assert.deepEqual(prepared.conversationHistoryInput.slice(3), [
     { role: 'assistant', content: 'Message 4' },
     { role: 'user', content: 'Message 5' },
   ]);
   assert.equal(prepared.stats.shortTermSentCount, 2);
   assert.equal(prepared.stats.shortTermDroppedCount, 3);
+  assert.equal(prepared.stats.profilePresent, true);
+  assert.ok(prepared.stats.profileCharacters > 0);
+});
+
+test('MemoryLayers handles an empty or invalid profile', () => {
+  const prepared = new MemoryLayers({ model: 'gpt-5-nano' }).previewContext({
+    activeProfile: null,
+  });
+
+  assert.match(prepared.conversationHistoryInput[0].content, /No saved memory/);
+  assert.equal(prepared.stats.profilePresent, false);
 });
 
 test('MemoryLayers updates layers from model JSON and reports changed keys', async () => {

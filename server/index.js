@@ -47,17 +47,70 @@ export function createApp({
     const shortTermMessages = messageStore.getShortTermMessages();
     const workingMemory = messageStore.getWorkingMemory();
     const longTermMemory = messageStore.getLongTermMemory();
+    const activeProfile = messageStore.getActiveProfile();
 
     response.json({
       shortTermMessages,
       workingMemory,
       longTermMemory,
+      activeProfile,
       memoryStats: buildMemoryStats({
         shortTermMessages,
         workingMemory,
         longTermMemory,
+        activeProfile,
       }),
     });
+  });
+
+  app.get('/api/profiles', (_request, response) => {
+    response.json({
+      profiles: messageStore.getProfiles(),
+      activeProfile: messageStore.getActiveProfile(),
+    });
+  });
+
+  app.get('/api/profile-comparisons', (_request, response) => {
+    response.json({ comparisons: messageStore.getProfileComparisons() });
+  });
+
+  app.delete('/api/profile-comparisons', (_request, response) => {
+    messageStore.clearProfileComparisons();
+    messageStore.clearMemory();
+    response.json({ comparisons: [] });
+  });
+
+  app.post('/api/profiles/:id/activate', (request, response) => {
+    const activeProfile = messageStore.setActiveProfile(request.params.id);
+
+    if (!activeProfile) {
+      response.status(404).json({ error: 'Profile not found' });
+      return;
+    }
+
+    response.json({
+      profiles: messageStore.getProfiles(),
+      activeProfile,
+    });
+  });
+
+  app.put('/api/profiles/:id', (request, response) => {
+    try {
+      const profile = messageStore.updateUserProfile(request.params.id, request.body);
+
+      if (!profile) {
+        response.status(404).json({ error: 'Profile not found' });
+        return;
+      }
+
+      response.json({
+        profile,
+        activeProfile: messageStore.getActiveProfile(),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid profile';
+      response.status(400).json({ error: message });
+    }
   });
 
   app.get('/api/config', (_request, response) => {
@@ -84,8 +137,48 @@ export function createApp({
       response.json({
         tokenReport,
         stats: context.prepared.stats,
+        activeProfile: context.activeProfile,
         comparison: buildMemoryTokenComparison(tokenReport),
       });
+    } catch (error) {
+      sendError(response, error, 'Unknown server error');
+    }
+  });
+
+  app.post('/api/profile-comparison', async (request, response) => {
+    try {
+      const message = agent.normalizeInput(request.body?.message);
+      const settings = memory.normalizeSettings(request.body?.settings);
+      const profiles = messageStore.getProfiles();
+      const comparisons = messageStore.getProfileComparisons();
+      const results = await Promise.all(
+        profiles.map(async (profile) => {
+          const profileHistory = buildProfileComparisonHistory(comparisons, profile.id);
+          const context = buildCurrentMemoryContext({
+            messageStore,
+            memory,
+            settings,
+            activeProfile: profile,
+            shortTermMessages: profileHistory,
+          });
+          const result = await agent.ask({
+            message,
+            history: context.shortTermMessages,
+            conversationHistoryInput: context.prepared.conversationHistoryInput,
+          });
+
+          return {
+            profile,
+            answer: result.answer,
+            model: result.model,
+            usage: result.usage,
+            contextStats: context.prepared.stats,
+          };
+        }),
+      );
+
+      const comparison = messageStore.addProfileComparison({ question: message, results });
+      response.json({ comparison });
     } catch (error) {
       sendError(response, error, 'Unknown server error');
     }
@@ -98,6 +191,7 @@ export function createApp({
       shortTermMessages: [],
       workingMemory: messageStore.getWorkingMemory(),
       longTermMemory: messageStore.getLongTermMemory(),
+      activeProfile: messageStore.getActiveProfile(),
     });
   });
 
@@ -139,6 +233,7 @@ export function createApp({
         shortTermMessages: messageStore.getShortTermMessages(),
         workingMemory: before.workingMemory,
         longTermMemory: before.longTermMemory,
+        activeProfile: before.activeProfile,
         memoryChanges: {
           workingMemory: [],
           longTermMemory: [],
@@ -154,23 +249,47 @@ export function createApp({
   return app;
 }
 
-function buildCurrentMemoryContext({ messageStore, memory, settings }) {
-  const shortTermMessages = messageStore.getShortTermMessages();
+function buildCurrentMemoryContext({
+  messageStore,
+  memory,
+  settings,
+  activeProfile = null,
+  shortTermMessages = null,
+}) {
+  const resolvedShortTermMessages = shortTermMessages ?? messageStore.getShortTermMessages();
   const workingMemory = messageStore.getWorkingMemory();
   const longTermMemory = messageStore.getLongTermMemory();
+  const resolvedProfile = activeProfile ?? messageStore.getActiveProfile();
   const prepared = memory.previewContext({
-    shortTermMessages,
+    shortTermMessages: resolvedShortTermMessages,
     workingMemory,
     longTermMemory,
+    activeProfile: resolvedProfile,
     settings,
   });
 
   return {
-    shortTermMessages,
+    shortTermMessages: resolvedShortTermMessages,
     workingMemory,
     longTermMemory,
+    activeProfile: resolvedProfile,
     prepared,
   };
+}
+
+function buildProfileComparisonHistory(comparisons, profileId) {
+  return comparisons.flatMap((comparison) => {
+    const result = comparison.results.find((item) => item.profile?.id === profileId);
+
+    if (!result) {
+      return [];
+    }
+
+    return [
+      { role: 'user', text: comparison.question },
+      { role: 'agent', text: result.answer },
+    ];
+  });
 }
 
 function saveMemoryExchange({ messageStore, message, result, metadata }) {
@@ -223,7 +342,7 @@ function updateMemoryInBackground({ memory, messageStore, before, message, answe
   });
 }
 
-function buildMemoryStats({ shortTermMessages, workingMemory, longTermMemory }) {
+function buildMemoryStats({ shortTermMessages, workingMemory, longTermMemory, activeProfile }) {
   return {
     shortTerm: {
       rawMessageCount: shortTermMessages.length,
@@ -233,6 +352,10 @@ function buildMemoryStats({ shortTermMessages, workingMemory, longTermMemory }) 
     },
     longTerm: {
       characters: JSON.stringify(longTermMemory).length,
+    },
+    profile: {
+      characters: JSON.stringify(activeProfile).length,
+      activeProfileId: activeProfile?.id ?? null,
     },
   };
 }
@@ -271,7 +394,7 @@ if (isMainModule) {
   const app = createApp();
   const server = app.listen(port, () => {
     console.log(`Agent API is running on http://localhost:${port}`);
-    console.log('Memory layers: short-term, working, long-term');
+    console.log('Personalization: active profile, short-term, working, long-term memory');
   });
 
   server.on('error', (error) => {

@@ -1,1093 +1,443 @@
-import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
-import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
-import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
-import MemoryRoundedIcon from '@mui/icons-material/MemoryRounded';
-import PsychologyRoundedIcon from '@mui/icons-material/PsychologyRounded';
+import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
+import DeleteSweepRoundedIcon from '@mui/icons-material/DeleteSweepRounded';
+import EditRoundedIcon from '@mui/icons-material/EditRounded';
+import FormatListBulletedRoundedIcon from '@mui/icons-material/FormatListBulletedRounded';
+import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
+import RuleRoundedIcon from '@mui/icons-material/RuleRounded';
 import SendRoundedIcon from '@mui/icons-material/SendRounded';
-import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
+import StyleRoundedIcon from '@mui/icons-material/StyleRounded';
 import {
-  Alert,
-  Box,
-  Button,
-  CircularProgress,
-  CssBaseline,
-  IconButton,
-  LinearProgress,
-  Paper,
-  Stack,
-  TextField,
-  ThemeProvider,
-  Tooltip,
-  Typography,
-  createTheme,
+  Alert, Box, Button, CircularProgress, CssBaseline, Dialog, DialogActions,
+  DialogContent, DialogTitle, IconButton, Paper, Stack, TextField,
+  ThemeProvider, Tooltip, Typography, createTheme,
 } from '@mui/material';
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
-const DEFAULT_MODEL_CONTEXT_LIMIT = 128_000;
-const DEFAULT_SETTINGS = {
-  shortTermLimit: 8,
-};
-const INK = '#17201e';
-const ACCENTS = {
-  shortTerm: '#12675c',
-  working: '#8a5a00',
-  longTerm: '#3859a7',
-};
-const MEMORY_LABELS = {
-  workingMemory: {
-    goal: 'Цель',
-    taskData: 'Данные задачи',
-    constraints: 'Ограничения',
-    openQuestions: 'Открытые вопросы',
-    nextSteps: 'Следующие шаги',
-  },
-  longTermMemory: {
-    profile: 'Профиль',
-    preferences: 'Предпочтения',
-    decisions: 'Решения',
-    knowledge: 'Знания',
-  },
-};
-const welcomeMessage = {
-  id: 'welcome-memory',
-  role: 'agent',
-  text:
-    'Я агент с явной памятью: диалог сохраняю в short-term, состояние текущей задачи — в working memory, а устойчивые факты и решения — в long-term memory.',
-};
+const INK = '#18201f';
+const PROFILE_COLORS = ['#12675c', '#8a4f34', '#3d5a9c', '#7a3e73'];
+const DEFAULT_SETTINGS = { shortTermLimit: 8 };
 
 const theme = createTheme({
   palette: {
-    background: {
-      default: '#eef3f1',
-      paper: '#ffffff',
-    },
-    primary: {
-      main: ACCENTS.shortTerm,
-    },
-    text: {
-      primary: INK,
-      secondary: '#65716d',
-    },
-    error: {
-      main: '#b94747',
-    },
+    background: { default: '#edf2ef', paper: '#ffffff' },
+    primary: { main: '#12675c' },
+    text: { primary: INK, secondary: '#64706c' },
+    error: { main: '#b94747' },
   },
-  shape: {
-    borderRadius: 8,
-  },
+  shape: { borderRadius: 8 },
   typography: {
-    fontFamily:
-      'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    fontSize: 16,
-    h1: {
-      fontSize: 'clamp(1.35rem, 2vw, 2.05rem)',
-      fontWeight: 780,
-      letterSpacing: 0,
-      lineHeight: 1.08,
-    },
-    h2: {
-      fontSize: '0.98rem',
-      fontWeight: 780,
-      letterSpacing: 0,
-      lineHeight: 1.2,
-    },
-    body2: {
-      fontSize: '0.92rem',
-      lineHeight: 1.5,
-    },
-    caption: {
-      fontSize: '0.79rem',
-      letterSpacing: 0,
-      lineHeight: 1.35,
-    },
+    fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    h1: { fontSize: '1.35rem', fontWeight: 800, letterSpacing: 0, lineHeight: 1.15 },
+    h2: { fontSize: '1rem', fontWeight: 800, letterSpacing: 0, lineHeight: 1.25 },
+    body2: { fontSize: '0.92rem', lineHeight: 1.55 },
+    caption: { fontSize: '0.78rem', letterSpacing: 0, lineHeight: 1.4 },
   },
   components: {
-    MuiButton: {
-      defaultProps: {
-        size: 'small',
-      },
-      styleOverrides: {
-        root: {
-          borderRadius: 8,
-          fontWeight: 740,
-          minHeight: 40,
-          textTransform: 'none',
-          whiteSpace: 'nowrap',
-        },
-      },
-    },
-    MuiIconButton: {
-      defaultProps: {
-        size: 'small',
-      },
-      styleOverrides: {
-        root: {
-          borderRadius: 8,
-        },
-      },
-    },
+    MuiButton: { styleOverrides: { root: { borderRadius: 8, fontWeight: 750, minHeight: 42, textTransform: 'none' } } },
+    MuiIconButton: { styleOverrides: { root: { borderRadius: 8 } } },
     MuiTextField: {
-      defaultProps: {
-        size: 'small',
-      },
-      styleOverrides: {
-        root: {
-          '& .MuiOutlinedInput-root': {
-            background: '#ffffff',
-            borderRadius: 10,
-            fontSize: '0.96rem',
-            lineHeight: 1.5,
-          },
-        },
-      },
+      defaultProps: { size: 'small' },
+      styleOverrides: { root: { '& .MuiOutlinedInput-root': { background: '#fff', borderRadius: 8 } } },
     },
   },
 });
 
 function App() {
-  const [messages, setMessages] = useState([welcomeMessage]);
-  const [workingMemory, setWorkingMemory] = useState({});
-  const [longTermMemory, setLongTermMemory] = useState({});
-  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [profiles, setProfiles] = useState([]);
   const [modelName, setModelName] = useState('gpt-4o');
-  const [modelContextLimit, setModelContextLimit] = useState(DEFAULT_MODEL_CONTEXT_LIMIT);
-  const [input, setInput] = useState('');
-  const [preview, setPreview] = useState(null);
+  const [question, setQuestion] = useState('');
+  const [pendingQuestion, setPendingQuestion] = useState('');
+  const [comparisons, setComparisons] = useState([]);
+  const [editingProfile, setEditingProfile] = useState(null);
   const [error, setError] = useState('');
   const [isBooting, setIsBooting] = useState(true);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isResetting, setIsResetting] = useState(false);
-  const inputRef = useRef(null);
-  const realMessages = removeWelcome(messages);
-  const hasSavedMemory =
-    realMessages.length > 0 ||
-    hasMemoryValues(workingMemory) ||
-    hasMemoryValues(longTermMemory);
-  const isOverflow = preview?.tokenReport?.context?.status === 'overflow';
-  const canSend =
-    input.trim().length > 0 &&
-    !isLoading &&
-    !isBooting &&
-    !isResetting &&
-    !isOverflow;
+  const [isComparing, setIsComparing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
 
   useEffect(() => {
-    let isMounted = true;
+    let mounted = true;
 
-    async function loadInitialData() {
-      try {
-        const [memoryResponse, configResponse] = await Promise.all([
-          fetch('/api/memory'),
-          fetch('/api/config'),
-        ]);
-        const memoryData = await memoryResponse.json().catch(() => ({}));
+    Promise.all([fetch('/api/profiles'), fetch('/api/config'), fetch('/api/profile-comparisons')])
+      .then(async ([profilesResponse, configResponse, comparisonsResponse]) => {
+        const profilesData = await profilesResponse.json().catch(() => ({}));
         const configData = await configResponse.json().catch(() => ({}));
-
-        if (!memoryResponse.ok) {
-          throw new Error(memoryData.error || 'Не удалось загрузить память.');
+        const comparisonsData = await comparisonsResponse.json().catch(() => ({}));
+        if (!profilesResponse.ok) throw new Error(profilesData.error || 'Не удалось загрузить профили.');
+        if (mounted) {
+          setProfiles(profilesData.profiles ?? []);
+          setComparisons(comparisonsResponse.ok ? comparisonsData.comparisons ?? [] : []);
+          setModelName(configResponse.ok && configData.model ? configData.model : 'gpt-4o');
         }
+      })
+      .catch((requestError) => mounted && setError(formatRequestError(requestError, 'Не удалось загрузить профили.')))
+      .finally(() => mounted && setIsBooting(false));
 
-        if (!isMounted) {
-          return;
-        }
-
-        setMessages(withWelcome(memoryData.shortTermMessages));
-        setWorkingMemory(memoryData.workingMemory ?? {});
-        setLongTermMemory(memoryData.longTermMemory ?? {});
-        setModelName(configResponse.ok && configData.model ? configData.model : 'gpt-4o');
-        setModelContextLimit(
-          configResponse.ok && Number.isInteger(configData.modelContextWindow)
-            ? configData.modelContextWindow
-            : DEFAULT_MODEL_CONTEXT_LIMIT,
-        );
-        if (configResponse.ok && configData.memoryDefaults) {
-          setSettings(configData.memoryDefaults);
-        }
-      } catch (requestError) {
-        setError(formatRequestError(requestError, 'Не удалось загрузить память.'));
-      } finally {
-        if (isMounted) {
-          setIsBooting(false);
-        }
-      }
-    }
-
-    loadInitialData();
-
-    return () => {
-      isMounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
-  useEffect(() => {
-    if (isBooting || isResetting) {
-      setPreview(null);
-      return undefined;
-    }
-
-    const controller = new AbortController();
-    const message = input.trim();
-
-    const timeoutId = window.setTimeout(async () => {
-      try {
-        const response = await fetch('/api/context-preview', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ message, settings }),
-          signal: controller.signal,
-        });
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          throw new Error(data.error || 'Не удалось посчитать контекст.');
-        }
-
-        setPreview(data);
-      } catch (requestError) {
-        if (requestError?.name !== 'AbortError') {
-          setPreview(null);
-        }
-      }
-    }, 300);
-
-    return () => {
-      controller.abort();
-      window.clearTimeout(timeoutId);
-    };
-  }, [
-    input,
-    isBooting,
-    isResetting,
-    messages.length,
-    settings.shortTermLimit,
-    JSON.stringify(workingMemory),
-    JSON.stringify(longTermMemory),
-  ]);
-
-  async function handleSubmit(event) {
+  async function handleCompare(event) {
     event.preventDefault();
-
-    const text = input.trim();
-    if (!text || !canSend) {
-      return;
-    }
+    const message = question.trim();
+    if (!message || isComparing) return;
 
     setError('');
-    setInput('');
-    setIsLoading(true);
-
+    setIsComparing(true);
+    setPendingQuestion(message);
+    setQuestion('');
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch('/api/profile-comparison', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ message: text, settings }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, settings: DEFAULT_SETTINGS }),
       });
       const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Не удалось получить ответ агента.');
-      }
-
-      setMessages(withWelcome(data.shortTermMessages));
-      setWorkingMemory(data.workingMemory ?? {});
-      setLongTermMemory(data.longTermMemory ?? {});
-      setPreview(null);
-
-      if (data.memoryUpdateStatus === 'pending') {
-        scheduleMemoryRefresh();
-      }
+      if (!response.ok) throw new Error(data.error || 'Не удалось получить сравнение.');
+      setComparisons((current) => [...current, data.comparison]);
     } catch (requestError) {
-      setError(formatRequestError(requestError, 'Произошла неизвестная ошибка.'));
+      setQuestion(message);
+      setError(formatRequestError(requestError, 'Не удалось получить сравнение.'));
     } finally {
-      setIsLoading(false);
-      inputRef.current?.focus();
+      setPendingQuestion('');
+      setIsComparing(false);
     }
   }
 
-  async function handleReset() {
-    if (isLoading || isBooting || isResetting || !hasSavedMemory) {
-      return;
-    }
-
+  async function handleProfileSave(profile) {
+    if (!profile?.id || isSaving) return;
     setError('');
-    setIsResetting(true);
-
+    setIsSaving(true);
     try {
-      const response = await fetch('/api/memory', {
-        method: 'DELETE',
+      const response = await fetch(`/api/profiles/${encodeURIComponent(profile.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(profile),
       });
       const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Не удалось очистить память.');
-      }
-
-      setMessages([welcomeMessage]);
-      setWorkingMemory(data.workingMemory ?? {});
-      setLongTermMemory(data.longTermMemory ?? {});
-      setPreview(null);
+      if (!response.ok) throw new Error(data.error || 'Не удалось сохранить профиль.');
+      setProfiles((current) => current.map((item) => item.id === data.profile.id ? data.profile : item));
+      setEditingProfile(null);
     } catch (requestError) {
-      setError(formatRequestError(requestError, 'Не удалось очистить память.'));
+      setError(formatRequestError(requestError, 'Не удалось сохранить профиль.'));
     } finally {
-      setIsResetting(false);
-      inputRef.current?.focus();
+      setIsSaving(false);
     }
   }
 
-  function updateSettings(key, value) {
-    setSettings((current) => ({
-      ...current,
-      [key]: value,
-    }));
-  }
-
-  async function refreshMemorySnapshot() {
-    const response = await fetch('/api/memory');
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      throw new Error(data.error || 'Не удалось обновить память.');
+  async function handleClearHistory() {
+    if (isClearing) return;
+    setError('');
+    setIsClearing(true);
+    try {
+      const response = await fetch('/api/profile-comparisons', { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Не удалось очистить историю.');
+      setComparisons([]);
+    } catch (requestError) {
+      setError(formatRequestError(requestError, 'Не удалось очистить историю.'));
+    } finally {
+      setIsClearing(false);
     }
-
-    setMessages(withWelcome(data.shortTermMessages));
-    setWorkingMemory(data.workingMemory ?? {});
-    setLongTermMemory(data.longTermMemory ?? {});
-  }
-
-  function scheduleMemoryRefresh(attempt = 0) {
-    const delays = [900, 2200, 4200, 7000];
-
-    if (attempt >= delays.length) {
-      return;
-    }
-
-    window.setTimeout(async () => {
-      try {
-        await refreshMemorySnapshot();
-      } catch {
-        return;
-      }
-
-      scheduleMemoryRefresh(attempt + 1);
-    }, delays[attempt]);
   }
 
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Box
-        component="main"
-        sx={{
-          background:
-            'linear-gradient(118deg, rgba(18, 103, 92, 0.15) 0%, rgba(238, 243, 241, 0.96) 38%, rgba(138, 90, 0, 0.12) 70%, rgba(56, 89, 167, 0.13) 100%), #eef3f1',
-          minHeight: '100vh',
-          p: { xs: 1, md: 2 },
-        }}
-      >
+      <Box component="main" sx={{ minHeight: '100vh', p: { xs: 1.25, md: 2 } }}>
         <Box
           sx={{
             display: 'grid',
-            gap: 1.25,
-            gridTemplateRows: 'auto minmax(0, 1fr) auto',
-            height: 'calc(100vh - 32px)',
-            maxWidth: 1760,
+            gap: 1.5,
+            gridTemplateRows: { xs: 'auto', md: 'auto minmax(0, 1fr) auto' },
+            height: { xs: 'auto', md: 'calc(100vh - 32px)' },
+            maxWidth: 1500,
             minHeight: 0,
             mx: 'auto',
           }}
         >
           <Header
-            disabled={isLoading || isBooting || isResetting}
-            modelContextLimit={modelContextLimit}
+            historyCount={comparisons.length}
+            isClearing={isClearing}
             modelName={modelName}
-            onChange={updateSettings}
-            preview={preview}
-            settings={settings}
+            onClearHistory={handleClearHistory}
+            profileCount={profiles.length}
           />
-
+          {error && <Alert severity="error">{error}</Alert>}
           <Box
+            aria-busy={isBooting}
             sx={{
               display: 'grid',
-              gap: 1.25,
-              gridTemplateColumns: {
-                xs: '1fr',
-                lg: 'repeat(3, minmax(0, 1fr))',
-              },
-              height: '100%',
+              gap: 1.5,
+              gridTemplateColumns: { xs: '1fr', md: `repeat(${Math.max(profiles.length, 1)}, minmax(0, 1fr))` },
               minHeight: 0,
             }}
           >
-            <MemoryLayerPanel
-              accent={ACCENTS.working}
-              changedKeys={findLatestMemoryChanges(realMessages).workingMemory}
-              icon={<Inventory2RoundedIcon />}
-              labels={MEMORY_LABELS.workingMemory}
-              memory={workingMemory}
-              subtitle="Состояние всей текущей задачи и диалога"
-              title="Working memory"
-            />
-            <ChatPanel
-              isBooting={isBooting}
-              isLoading={isLoading}
-              messages={messages}
-              preview={preview}
-            />
-            <MemoryLayerPanel
-              accent={ACCENTS.longTerm}
-              changedKeys={findLatestMemoryChanges(realMessages).longTermMemory}
-              icon={<PsychologyRoundedIcon />}
-              labels={MEMORY_LABELS.longTermMemory}
-              memory={longTermMemory}
-              subtitle="То, что переносится между задачами и чатами"
-              title="Long-term memory"
-            />
+            {isBooting
+              ? [0, 1].map((index) => <ProfileSkeleton key={index} />)
+              : profiles.map((profile, index) => (
+                  <ProfilePanel
+                    color={PROFILE_COLORS[index % PROFILE_COLORS.length]}
+                    comparisons={comparisons}
+                    isComparing={isComparing}
+                    key={profile.id}
+                    onEdit={() => setEditingProfile(profile)}
+                    pendingQuestion={pendingQuestion}
+                    profile={profile}
+                  />
+                ))}
           </Box>
-
-          <Paper
-            component="form"
-            elevation={0}
-            onSubmit={handleSubmit}
-            sx={{
-              background: 'rgba(255, 255, 255, 0.96)',
-              border: '1px solid rgba(24, 32, 31, 0.12)',
-              borderRadius: 2,
-              display: 'grid',
-              gap: 0.65,
-              gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) auto' },
-              p: { xs: 0.65, md: 0.75 },
-            }}
-          >
-            <Stack spacing={0.65}>
-              {error && (
-                <Alert severity="error" sx={{ borderRadius: 1.5 }}>
-                  {error}
-                </Alert>
-              )}
-              {isOverflow && !error && (
-                <Alert severity="warning" sx={{ borderRadius: 1.5 }}>
-                  Следующий запрос превышает лимит контекста модели.
-                </Alert>
-              )}
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                <TextField
-                  disabled={isLoading || isBooting || isResetting}
-                  fullWidth
-                  inputRef={inputRef}
-                  maxRows={3}
-                  minRows={1}
-                  multiline
-                  onChange={(event) => {
-                    setInput(event.target.value);
-                    setError('');
-                  }}
-                  placeholder="Напишите агенту. Он явно выберет, что сохранить в каждый слой памяти."
-                  sx={{
-                    '& .MuiOutlinedInput-input': {
-                      py: 0.65,
-                    },
-                  }}
-                  value={input}
-                />
-                <Button
-                  disabled={!canSend}
-                  endIcon={isLoading ? <CircularProgress color="inherit" size={16} /> : <SendRoundedIcon />}
-                  sx={{
-                    alignSelf: 'stretch',
-                    background: ACCENTS.shortTerm,
-                    minHeight: { xs: 40, sm: 42 },
-                    minWidth: { xs: '100%', sm: 150 },
-                    '&:hover': {
-                      background: '#0c584f',
-                    },
-                  }}
-                  type="submit"
-                  variant="contained"
-                >
-                  {isLoading ? 'Жду ответ' : 'Отправить'}
-                </Button>
-              </Stack>
-            </Stack>
-
-            <Box sx={{ alignSelf: 'end', justifySelf: { xs: 'start', lg: 'end' } }}>
-              <Tooltip title="Очистить все три слоя памяти">
-                <span>
-                  <IconButton
-                    aria-label="Очистить память"
-                    color="error"
-                    disabled={isLoading || isBooting || isResetting || !hasSavedMemory}
-                    onClick={handleReset}
-                    sx={{
-                      background: 'rgba(185, 71, 71, 0.08)',
-                      border: '1px solid rgba(185, 71, 71, 0.18)',
-                      height: 36,
-                      width: 36,
-                    }}
-                  >
-                    <DeleteOutlineRoundedIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-            </Box>
-          </Paper>
+          <QuestionComposer
+            disabled={isBooting || isComparing || profiles.length === 0}
+            isComparing={isComparing}
+            onChange={setQuestion}
+            onSubmit={handleCompare}
+            question={question}
+          />
         </Box>
       </Box>
+      <ProfileEditor
+        isSaving={isSaving}
+        onClose={() => setEditingProfile(null)}
+        onSave={handleProfileSave}
+        open={Boolean(editingProfile)}
+        profile={editingProfile}
+      />
     </ThemeProvider>
   );
 }
 
-function Header({ disabled, modelContextLimit, modelName, onChange, preview, settings }) {
+function Header({ historyCount, isClearing, modelName, onClearHistory, profileCount }) {
   return (
-    <Paper
-      component="header"
-      elevation={0}
-      sx={{
-        background: 'rgba(255, 255, 255, 0.96)',
-        border: '1px solid rgba(24, 32, 31, 0.12)',
-        borderRadius: 2,
-        display: 'flex',
-        gap: 1,
-        p: { xs: 1, md: 1 },
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-      }}
-    >
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-        <Box
-          sx={{
-            alignItems: 'center',
-            background: INK,
-            borderRadius: 1.2,
-            color: '#fff8ef',
-            display: 'inline-flex',
-            fontSize: '0.84rem',
-            fontWeight: 780,
-            gap: 0.7,
-            lineHeight: 1,
-            px: 1,
-            py: 0.75,
-          }}
-        >
-          <MemoryRoundedIcon sx={{ fontSize: 18 }} />
-          AI Advent · День 11
+    <Paper component="header" elevation={0} sx={{ alignItems: 'center', border: '1px solid rgba(24,32,31,0.12)', display: 'flex', justifyContent: 'space-between', gap: 1, p: 1.25 }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+        <Box sx={{ bgcolor: INK, borderRadius: 1, color: '#fff', display: 'flex', p: 0.8 }}><AutoAwesomeRoundedIcon fontSize="small" /></Box>
+        <Box>
+          <Typography component="h1" variant="h1">AI Advent · День 12</Typography>
+          <Typography color="text.secondary" variant="caption">Один вопрос, разные профили</Typography>
         </Box>
-        <Typography color="text.secondary" variant="caption">
-          {modelName} · окно {formatNumber(modelContextLimit)} ток.
-        </Typography>
       </Stack>
-      <Stack
-        direction={{ xs: 'column', md: 'row' }}
-        spacing={1}
-        sx={{
-          alignItems: { xs: 'stretch', md: 'center' },
-          flex: { xs: '1 1 100%', lg: '0 1 auto' },
-        }}
-      >
-        <ContextInspector compact preview={preview} settings={settings} />
-        <ShortTermWindowControl disabled={disabled} onChange={onChange} settings={settings} />
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+        <Stack sx={{ alignItems: 'flex-end' }}>
+          <Typography fontWeight={760} variant="caption">{profileCount} профиля · {historyCount} запросов</Typography>
+          <Typography color="text.secondary" variant="caption">{modelName}</Typography>
+        </Stack>
+        <Tooltip title="Очистить всю переписку и память, сохранив профили">
+          <span>
+            <IconButton aria-label="Очистить всю переписку и память" color="error" disabled={isClearing} onClick={onClearHistory}>
+              {isClearing ? <CircularProgress color="inherit" size={18} /> : <DeleteSweepRoundedIcon fontSize="small" />}
+            </IconButton>
+          </span>
+        </Tooltip>
       </Stack>
     </Paper>
   );
 }
 
-function ShortTermWindowControl({ disabled, onChange, settings }) {
+function ProfilePanel({ color, comparisons, isComparing, onEdit, pendingQuestion, profile }) {
+  const history = comparisons
+    .map((comparison) => ({
+      ...comparison.results.find((result) => result.profile.id === profile.id),
+      comparisonId: comparison.id,
+      question: comparison.question,
+    }))
+    .filter((entry) => entry.answer);
+
   return (
-    <Box
-      sx={{
-        alignItems: 'center',
-        border: '1px solid rgba(24, 32, 31, 0.1)',
-        borderRadius: 1.5,
-        display: 'grid',
-        gap: 0.7,
-        gridTemplateColumns: { xs: '1fr', sm: 'auto 78px' },
-        minWidth: { xs: '100%', sm: 270 },
-        p: 0.65,
-      }}
-    >
-      <Stack direction="row" spacing={0.7} sx={{ alignItems: 'center' }}>
-        <TuneRoundedIcon sx={{ color: ACCENTS.shortTerm, fontSize: 18 }} />
-        <Typography color="text.secondary" fontWeight={780} variant="caption">
-          Short-term окно
-        </Typography>
-      </Stack>
-      <TextField
-        disabled={disabled}
-        fullWidth
-        inputProps={{ 'aria-label': 'Short-term окно', max: 30, min: 2, step: 1 }}
-        onChange={(event) => onChange('shortTermLimit', Number(event.target.value))}
-        sx={{
-          '& .MuiOutlinedInput-input': {
-            py: 0.65,
-          },
-        }}
-        type="number"
-        value={settings.shortTermLimit}
-      />
+    <Paper component="section" elevation={0} sx={{ border: `1px solid ${withAlpha(color, 0.25)}`, display: 'grid', gridTemplateRows: 'auto auto minmax(0, 1fr)', height: { md: '100%' }, minHeight: { xs: 560, md: 0 }, overflow: 'hidden' }}>
+      <Box sx={{ bgcolor: withAlpha(color, 0.09), borderBottom: `1px solid ${withAlpha(color, 0.18)}`, p: 1.35 }}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <Stack direction="row" spacing={0.9} sx={{ alignItems: 'center', minWidth: 0 }}>
+            <PersonRoundedIcon sx={{ color }} />
+            <Box sx={{ minWidth: 0 }}>
+              <Typography component="h2" sx={{ color, overflowWrap: 'anywhere' }} variant="h2">{profile.name}</Typography>
+              <Typography color="text.secondary" variant="caption">{profile.description}</Typography>
+            </Box>
+          </Stack>
+          <Tooltip title="Редактировать профиль">
+            <IconButton aria-label={`Редактировать ${profile.name}`} onClick={onEdit} sx={{ color }}><EditRoundedIcon fontSize="small" /></IconButton>
+          </Tooltip>
+        </Stack>
+      </Box>
+      <Box sx={{ borderBottom: '1px solid rgba(24,32,31,0.09)', display: 'grid', gap: 0.75, p: 1.25 }}>
+        <ProfileRule color={color} icon={<StyleRoundedIcon />} label="Стиль" value={profile.style} />
+        <ProfileRule color={color} icon={<FormatListBulletedRoundedIcon />} label="Формат" value={profile.format} />
+        <ProfileRule color={color} icon={<RuleRoundedIcon />} label="Ограничения" value={profile.constraints} />
+      </Box>
+      <Box sx={{ minHeight: 0, overflowY: 'auto', p: 1.35 }}>
+        {history.length > 0 || isComparing ? (
+          <ChatHistory
+            color={color}
+            history={history}
+            isComparing={isComparing}
+            pendingQuestion={pendingQuestion}
+            profileName={profile.name}
+          />
+        ) : (
+          <Stack spacing={1} sx={{ alignItems: 'center', color: 'text.secondary', height: '100%', justifyContent: 'center', textAlign: 'center' }}>
+            <AutoAwesomeRoundedIcon sx={{ color, fontSize: 30 }} />
+            <Typography variant="body2">Ответ этого профиля появится здесь.</Typography>
+          </Stack>
+        )}
+      </Box>
+    </Paper>
+  );
+}
+
+function ChatHistory({ color, history, isComparing, pendingQuestion, profileName }) {
+  const scrollRef = useRef(null);
+
+  useLayoutEffect(() => {
+    const node = scrollRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }, [history.length, isComparing]);
+
+  return (
+    <Stack ref={scrollRef} spacing={1.2} sx={{ height: '100%', overflowY: 'auto', pr: 0.35 }}>
+      {history.map((answer) => (
+        <React.Fragment key={`${answer.comparisonId}-${answer.profile.id}`}>
+          <Paper
+            component="article"
+            elevation={0}
+            sx={{
+              alignSelf: 'flex-end',
+              bgcolor: withAlpha(color, 0.1),
+              border: `1px solid ${withAlpha(color, 0.2)}`,
+              borderRadius: '8px 8px 2px 8px',
+              maxWidth: '86%',
+              px: 1.1,
+              py: 0.85,
+            }}
+          >
+            <Typography color="text.secondary" fontWeight={760} variant="caption">Вы</Typography>
+            <Typography sx={{ mt: 0.25, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }} variant="body2">{answer.question}</Typography>
+          </Paper>
+          <Paper
+            component="article"
+            elevation={0}
+            sx={{
+              alignSelf: 'flex-start',
+              bgcolor: '#f8faf9',
+              border: '1px solid rgba(24,32,31,0.1)',
+              borderRadius: '8px 8px 8px 2px',
+              maxWidth: '94%',
+              px: 1.1,
+              py: 0.85,
+            }}
+          >
+            <Typography sx={{ color, fontWeight: 760 }} variant="caption">{profileName}</Typography>
+            <Typography sx={{ mt: 0.3, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }} variant="body2">{answer.answer}</Typography>
+            <Stack direction="row" sx={{ borderTop: '1px solid rgba(24,32,31,0.08)', flexWrap: 'wrap', gap: 1, mt: 0.8, pt: 0.65 }}>
+              <Meta label="Profile" value={`${answer.contextStats.profileCharacters} симв.`} />
+              <Meta label="Input" value={`${formatNumber(answer.usage?.inputTokens)} ток.`} />
+              <Meta label="Output" value={`${formatNumber(answer.usage?.outputTokens)} ток.`} />
+            </Stack>
+          </Paper>
+        </React.Fragment>
+      ))}
+      {isComparing && pendingQuestion && (
+        <>
+          <Paper
+            component="article"
+            elevation={0}
+            sx={{
+              alignSelf: 'flex-end',
+              bgcolor: withAlpha(color, 0.1),
+              border: `1px solid ${withAlpha(color, 0.2)}`,
+              borderRadius: '8px 8px 2px 8px',
+              maxWidth: '86%',
+              px: 1.1,
+              py: 0.85,
+            }}
+          >
+            <Typography color="text.secondary" fontWeight={760} variant="caption">Вы</Typography>
+            <Typography sx={{ mt: 0.25, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }} variant="body2">{pendingQuestion}</Typography>
+          </Paper>
+          <Paper
+            aria-label={`${profileName} формирует ответ`}
+            component="article"
+            elevation={0}
+            sx={{
+              alignSelf: 'flex-start',
+              bgcolor: '#f8faf9',
+              border: '1px solid rgba(24,32,31,0.1)',
+              borderRadius: '8px 8px 8px 2px',
+              px: 1.1,
+              py: 0.9,
+            }}
+          >
+            <Stack direction="row" spacing={0.8} sx={{ alignItems: 'center' }}>
+              <CircularProgress size={15} sx={{ color }} />
+              <Typography sx={{ color, fontWeight: 760 }} variant="caption">{profileName} отвечает...</Typography>
+            </Stack>
+          </Paper>
+        </>
+      )}
+    </Stack>
+  );
+}
+
+function ProfileRule({ color, icon, label, value }) {
+  return (
+    <Box sx={{ display: 'grid', gap: 0.75, gridTemplateColumns: '20px 92px minmax(0, 1fr)', alignItems: 'start' }}>
+      <Box sx={{ color, display: 'flex', '& svg': { fontSize: 17 } }}>{icon}</Box>
+      <Typography color="text.secondary" fontWeight={760} variant="caption">{label}</Typography>
+      <Typography sx={{ overflowWrap: 'anywhere' }} variant="caption">{value || '—'}</Typography>
     </Box>
   );
 }
 
-function ChatPanel({ isBooting, isLoading, messages, preview }) {
-  const scrollRef = useRef(null);
-  const latestUsage = useMemo(() => findLatestUsage(messages), [messages]);
+function QuestionComposer({ disabled, isComparing, onChange, onSubmit, question }) {
+  return (
+    <Paper component="form" elevation={0} onSubmit={onSubmit} sx={{ border: '1px solid rgba(24,32,31,0.13)', display: 'grid', gap: 1, gridTemplateColumns: { xs: '1fr', sm: 'minmax(0, 1fr) auto' }, p: 0.9 }}>
+      <TextField disabled={disabled} fullWidth maxRows={4} minRows={1} multiline onChange={(event) => onChange(event.target.value)} placeholder="Задайте один вопрос обоим профилям" value={question} />
+      <Button disabled={disabled || !question.trim()} endIcon={isComparing ? <CircularProgress color="inherit" size={16} /> : <SendRoundedIcon />} type="submit" variant="contained">
+        {isComparing ? 'Сравниваю' : 'Сравнить ответы'}
+      </Button>
+    </Paper>
+  );
+}
 
-  useLayoutEffect(() => {
-    const node = scrollRef.current;
+function ProfileSkeleton() {
+  return <Paper elevation={0} sx={{ border: '1px solid rgba(24,32,31,0.1)', minHeight: 560, p: 2 }}><Stack spacing={1} sx={{ alignItems: 'center', height: '100%', justifyContent: 'center' }}><CircularProgress size={28} /><Typography color="text.secondary" variant="body2">Загружаю профиль...</Typography></Stack></Paper>;
+}
 
-    if (!node) {
-      return;
-    }
-
-    node.scrollTo({
-      top: node.scrollHeight,
-      behavior: isBooting ? 'auto' : 'smooth',
-    });
-  }, [isBooting, isLoading, messages]);
+function ProfileEditor({ isSaving, onClose, onSave, open, profile }) {
+  const [draft, setDraft] = useState(profile ?? {});
+  useEffect(() => setDraft(profile ?? {}), [profile]);
 
   return (
-    <Paper
-      component="section"
-      elevation={0}
-      sx={{
-        background: '#ffffff',
-        border: '1px solid rgba(24, 32, 31, 0.13)',
-        borderRadius: 2,
-        boxShadow: '0 20px 56px rgba(24, 32, 31, 0.1)',
-        display: 'grid',
-        gridTemplateRows: 'auto minmax(0, 1fr)',
-        minHeight: { xs: 480, lg: 0 },
-        overflow: 'hidden',
-      }}
-    >
-      <Box
-        component="header"
-        sx={{
-          background: `linear-gradient(135deg, ${withAlpha(ACCENTS.shortTerm, 0.14)} 0%, rgba(255,255,255,0.9) 72%)`,
-          borderBottom: '1px solid rgba(24, 32, 31, 0.1)',
-          display: 'grid',
-          gap: 0.8,
-          p: { xs: 1.1, md: 1.25 },
-        }}
-      >
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-          <Stack spacing={0.2} sx={{ minWidth: 0 }}>
-            <Stack direction="row" spacing={0.7} sx={{ alignItems: 'center' }}>
-              <HistoryRoundedIcon sx={{ color: ACCENTS.shortTerm }} />
-              <Typography component="h2" sx={{ color: ACCENTS.shortTerm }} variant="h2">
-                Short-term memory
-              </Typography>
-            </Stack>
-            <Typography color="text.secondary" variant="caption">
-              Текущий диалог, который уходит в модель последними сообщениями
-            </Typography>
-          </Stack>
-          <Box sx={{ background: ACCENTS.shortTerm, borderRadius: 1, height: 12, width: 12 }} />
-        </Stack>
-        <ContextMeter latestUsage={latestUsage} previewReport={preview?.tokenReport} />
-      </Box>
-
-      <Box
-        aria-live="polite"
-        ref={scrollRef}
-        sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 1,
-          minHeight: 0,
-          overflowY: 'auto',
-          p: { xs: 1, md: 1.25 },
-        }}
-      >
-        {messages.map((message, index) => (
-          <MessageBubble
-            key={message.id}
-            message={message}
-            requestTokens={findRequestTokensForMessage(messages, index)}
-          />
+    <Dialog fullWidth maxWidth="sm" onClose={isSaving ? undefined : onClose} open={open}>
+      <DialogTitle>Настройка профиля</DialogTitle>
+      <DialogContent><Stack spacing={1.25} sx={{ pt: 0.5 }}>
+        {[
+          ['name', 'Название', 1], ['description', 'Описание', 2], ['style', 'Стиль', 2],
+          ['format', 'Формат', 2], ['constraints', 'Ограничения', 2],
+        ].map(([key, label, rows]) => (
+          <TextField key={key} label={label} multiline={rows > 1} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} rows={rows > 1 ? rows : undefined} value={draft[key] ?? ''} />
         ))}
-        {isLoading && (
-          <MessageBubble
-            isLoading
-            message={{
-              id: 'memory-loading',
-              role: 'agent',
-              text: 'Думаю и готовлю обновление памяти...',
-            }}
-          />
-        )}
-        {isBooting && (
-          <MessageBubble
-            isLoading
-            message={{
-              id: 'memory-booting',
-              role: 'agent',
-              text: 'Загружаю память...',
-            }}
-          />
-        )}
-      </Box>
-    </Paper>
+      </Stack></DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button disabled={isSaving} onClick={onClose}>Отмена</Button>
+        <Button disabled={isSaving || !(draft.name ?? '').trim()} onClick={() => onSave(draft)} variant="contained">{isSaving ? 'Сохраняю...' : 'Сохранить'}</Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
-function MemoryLayerPanel({ accent, changedKeys = [], icon, labels, memory, subtitle, title }) {
-  return (
-    <Paper
-      component="section"
-      elevation={0}
-      sx={{
-        background: '#ffffff',
-        border: '1px solid rgba(24, 32, 31, 0.13)',
-        borderRadius: 2,
-        display: 'grid',
-        gridTemplateRows: 'auto minmax(0, 1fr)',
-        minHeight: { xs: 420, lg: 0 },
-        overflow: 'hidden',
-      }}
-    >
-      <Box
-        component="header"
-        sx={{
-          background: `linear-gradient(135deg, ${withAlpha(accent, 0.13)} 0%, rgba(255,255,255,0.9) 72%)`,
-          borderBottom: '1px solid rgba(24, 32, 31, 0.1)',
-          p: { xs: 1.1, md: 1.25 },
-        }}
-      >
-        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-          <Box sx={{ color: accent, display: 'inline-flex' }}>{icon}</Box>
-          <Stack spacing={0.2} sx={{ minWidth: 0 }}>
-            <Typography component="h2" sx={{ color: accent }} variant="h2">
-              {title}
-            </Typography>
-            <Typography color="text.secondary" variant="caption">
-              {subtitle}
-            </Typography>
-          </Stack>
-        </Stack>
-      </Box>
-      <Stack
-        spacing={0.7}
-        sx={{
-          minHeight: 0,
-          overflowY: 'auto',
-          p: { xs: 1.1, md: 1.25 },
-        }}
-      >
-        {Object.entries(labels).map(([key, label]) => {
-          const changed = changedKeys.includes(key);
-
-          return (
-            <Box
-              key={key}
-              sx={{
-                border: `1px solid ${changed ? withAlpha(accent, 0.38) : 'rgba(24, 32, 31, 0.09)'}`,
-                borderRadius: 1.25,
-                p: 0.85,
-              }}
-            >
-              <Stack direction="row" spacing={0.7} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography sx={{ color: accent, fontWeight: 780 }} variant="caption">
-                  {label}
-                </Typography>
-                {changed && (
-                  <Typography color="text.secondary" variant="caption">
-                    saved
-                  </Typography>
-                )}
-              </Stack>
-              <Typography sx={{ mt: 0.35, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }} variant="body2">
-                {formatMemoryValue(memory?.[key]) || '—'}
-              </Typography>
-            </Box>
-          );
-        })}
-      </Stack>
-    </Paper>
-  );
+function Meta({ label, value }) {
+  return <Typography color="text.secondary" variant="caption">{label}: <Box component="span" sx={{ color: INK, fontWeight: 760 }}>{value}</Box></Typography>;
 }
 
-function ContextInspector({ compact = false, preview, settings }) {
-  const stats = preview?.stats;
-
-  return (
-    <Paper
-      component="section"
-      elevation={0}
-      sx={{
-        background: compact ? 'rgba(255,255,255,0.68)' : '#ffffff',
-        border: '1px solid rgba(24, 32, 31, 0.13)',
-        borderRadius: compact ? 1.5 : 2,
-        minWidth: { xs: '100%', md: compact ? 520 : 'auto' },
-        p: compact ? 0.75 : { xs: 1.1, md: 1.25 },
-      }}
-    >
-      <Stack spacing={compact ? 0.45 : 0.85}>
-        <Stack direction="row" spacing={0.7} sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 0.75 }}>
-          <MemoryRoundedIcon sx={{ color: INK, fontSize: compact ? 18 : 20 }} />
-          <Typography component="h2" sx={{ fontWeight: 780 }} variant={compact ? 'caption' : 'h2'}>
-            Context payload
-          </Typography>
-          <TinyStat label="Short-term limit" value={formatNumber(settings.shortTermLimit)} />
-          <TinyStat label="Short-term sent" value={formatNumber(stats?.shortTermSentCount)} />
-          <TinyStat label="Dropped" value={formatNumber(stats?.shortTermDroppedCount)} />
-          <TinyStat label="Working chars" value={formatNumber(stats?.workingMemoryCharacters)} />
-          <TinyStat label="Long-term chars" value={formatNumber(stats?.longTermMemoryCharacters)} />
-        </Stack>
-        {!compact && (
-          <Typography color="text.secondary" variant="caption">
-            Порядок отправки: system prompt → long-term → working → recent short-term → текущий ввод.
-          </Typography>
-        )}
-      </Stack>
-    </Paper>
-  );
-}
-
-function ContextMeter({ latestUsage, previewReport }) {
-  const report = previewReport ?? latestUsage?.tokenReport;
-  const usedTokens = report?.context?.inputTokens ?? report?.fullInputTokens ?? 0;
-  const limit = report?.context?.contextWindow ?? DEFAULT_MODEL_CONTEXT_LIMIT;
-  const percent = limit > 0 ? Math.min((usedTokens / limit) * 100, 100) : 0;
-
-  return (
-    <Stack spacing={0.6}>
-      <LinearProgress
-        sx={{
-          bgcolor: 'rgba(24, 32, 31, 0.08)',
-          borderRadius: 1,
-          height: 7,
-          '& .MuiLinearProgress-bar': {
-            background: ACCENTS.shortTerm,
-            borderRadius: 1,
-          },
-        }}
-        value={percent}
-        variant="determinate"
-      />
-      <Stack direction="row" spacing={1} sx={{ justifyContent: 'space-between' }}>
-        <Typography color="text.secondary" variant="caption">
-          input: {formatNumber(usedTokens)} ток.
-        </Typography>
-        <Typography color="text.secondary" variant="caption">
-          память+история: {formatNumber(report?.conversationHistoryTokens)} ток.
-        </Typography>
-      </Stack>
-    </Stack>
-  );
-}
-
-function MessageBubble({ message, isLoading = false, requestTokens = null }) {
-  const isUser = message.role === 'user';
-
-  return (
-    <Paper
-      component="article"
-      elevation={0}
-      sx={{
-        alignSelf: isUser ? 'flex-end' : 'flex-start',
-        background: isUser
-          ? `linear-gradient(135deg, ${withAlpha(ACCENTS.shortTerm, 0.16)} 0%, rgba(255,255,255,0.92) 100%)`
-          : 'linear-gradient(180deg, #ffffff 0%, #f7faf8 100%)',
-        border: '1px solid rgba(24, 32, 31, 0.1)',
-        borderRadius: 2,
-        boxShadow: isUser
-          ? `0 14px 30px ${withAlpha(ACCENTS.shortTerm, 0.09)}`
-          : '0 14px 30px rgba(24, 32, 31, 0.07)',
-        maxWidth: { xs: '100%', md: '88%' },
-        px: 1,
-        py: 0.9,
-      }}
-    >
-      <Stack spacing={0.55}>
-        <Stack direction="row" spacing={0.6} sx={{ alignItems: 'center' }}>
-          <Box aria-hidden="true" sx={{ background: ACCENTS.shortTerm, borderRadius: 1, height: 8, width: 8 }} />
-          <Typography color="text.secondary" fontWeight={760} variant="caption">
-            {isUser ? 'Вы' : 'Агент'}
-          </Typography>
-          {isLoading && <CircularProgress color="inherit" size={10} />}
-        </Stack>
-        <Typography sx={{ overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }} variant="body2">
-          {message.text}
-        </Typography>
-        {isUser && typeof requestTokens === 'number' && (
-          <MessageMetaLine items={[`сообщение: ${formatNumber(requestTokens)} ток.`]} />
-        )}
-        {!isUser && message.metadata && <MessageStats metadata={message.metadata} />}
-      </Stack>
-    </Paper>
-  );
-}
-
-function MessageStats({ metadata }) {
-  const { model, usage, memoryChanges } = metadata;
-  const items = [
-    'memory-layers',
-    model || 'unknown',
-    `input: ${formatNumber(usage?.inputTokens)} ток.`,
-    `output: ${formatNumber(usage?.outputTokens)} ток.`,
-    formatCost(usage?.cost),
-  ];
-  const working = memoryChanges?.workingMemory ?? [];
-  const longTerm = memoryChanges?.longTermMemory ?? [];
-
-  if (working.length > 0) {
-    items.push(`working: ${working.join(', ')}`);
-  }
-
-  if (longTerm.length > 0) {
-    items.push(`long-term: ${longTerm.join(', ')}`);
-  }
-
-  if (working.length === 0 && longTerm.length === 0) {
-    items.push('память без изменений');
-  }
-
-  return <MessageMetaLine items={items} />;
-}
-
-function MessageMetaLine({ items }) {
-  return (
-    <Stack
-      direction="row"
-      spacing={0.6}
-      sx={{
-        borderTop: '1px solid rgba(24, 32, 31, 0.1)',
-        flexWrap: 'wrap',
-        gap: 0.5,
-        mt: 0.55,
-        pt: 0.6,
-      }}
-    >
-      {items.map((item) => (
-        <Typography color="text.secondary" component="span" key={item} variant="caption">
-          {item}
-        </Typography>
-      ))}
-    </Stack>
-  );
-}
-
-function TinyStat({ label, value }) {
-  return (
-    <Stack spacing={0.05} sx={{ minWidth: 0 }}>
-      <Typography color="text.secondary" variant="caption">
-        {label}
-      </Typography>
-      <Typography sx={{ fontSize: '0.88rem', fontWeight: 760, overflowWrap: 'anywhere' }}>
-        {value}
-      </Typography>
-    </Stack>
-  );
-}
-
-function withWelcome(shortTermMessages) {
-  return Array.isArray(shortTermMessages) && shortTermMessages.length > 0
-    ? shortTermMessages
-    : [welcomeMessage];
-}
-
-function removeWelcome(strategyMessages) {
-  return strategyMessages.filter((message) => message.id !== welcomeMessage.id);
-}
-
-function findLatestUsage(strategyMessages) {
-  return [...strategyMessages].reverse().find((message) => message.metadata?.usage)?.metadata?.usage || null;
-}
-
-function findLatestMemoryChanges(strategyMessages) {
-  return (
-    [...strategyMessages].reverse().find((message) => message.metadata?.memoryChanges)?.metadata
-      ?.memoryChanges || {
-      workingMemory: [],
-      longTermMemory: [],
-    }
-  );
-}
-
-function findRequestTokensForMessage(strategyMessages, index) {
-  const message = strategyMessages[index];
-
-  if (message?.role !== 'user') {
-    return null;
-  }
-
-  const nextAgentMessage = strategyMessages.slice(index + 1).find((item) => item.role === 'agent');
-
-  return nextAgentMessage?.metadata?.usage?.tokenReport?.currentRequestTokens ?? null;
-}
-
-function hasMemoryValues(memory) {
-  return Object.values(memory ?? {}).some((value) => typeof value === 'string' && value.trim());
-}
-
-function formatMemoryValue(value) {
-  if (Array.isArray(value)) {
-    return value.map((item) => formatMemoryValue(item)).filter(Boolean).join('; ');
-  }
-
-  if (typeof value === 'string') {
-    return value;
-  }
-
-  if (value == null) {
-    return '';
-  }
-
-  if (typeof value === 'object') {
-    return Object.entries(value)
-      .filter(([, nestedValue]) => nestedValue != null && nestedValue !== '')
-      .map(([nestedKey, nestedValue]) => `${nestedKey}: ${formatMemoryValue(nestedValue)}`)
-      .join('; ');
-  }
-
-  return String(value);
-}
-
-function formatNumber(value) {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    return '0';
-  }
-
-  return new Intl.NumberFormat('ru-RU').format(value);
-}
-
-function formatCost(cost) {
-  if (!cost || typeof cost.estimatedUsd !== 'number') {
-    return 'нет данных';
-  }
-
-  if (cost.estimatedUsd > 0 && cost.estimatedUsd < 0.0001) {
-    return '< $0.0001';
-  }
-
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: cost.currency || 'USD',
-    minimumFractionDigits: 4,
-    maximumFractionDigits: 6,
-  }).format(cost.estimatedUsd);
-}
-
+function formatNumber(value) { return new Intl.NumberFormat('ru-RU').format(Number(value) || 0); }
 function formatRequestError(error, fallback) {
-  if (error instanceof TypeError && error.message === 'Failed to fetch') {
-    return 'Не удалось подключиться к локальному API. Проверьте, что backend запущен и открыт правильный Vite URL.';
-  }
-
+  if (error instanceof TypeError && error.message === 'Failed to fetch') return 'Не удалось подключиться к локальному API.';
   return error instanceof Error ? error.message : fallback;
 }
-
 function withAlpha(hex, alpha) {
-  const normalized = hex.replace('#', '');
-  const r = parseInt(normalized.slice(0, 2), 16);
-  const g = parseInt(normalized.slice(2, 4), 16);
-  const b = parseInt(normalized.slice(4, 6), 16);
-
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  const value = hex.replace('#', '');
+  return `rgba(${parseInt(value.slice(0, 2), 16)}, ${parseInt(value.slice(2, 4), 16)}, ${parseInt(value.slice(4, 6), 16)}, ${alpha})`;
 }
 
 const rootElement = document.getElementById('root');

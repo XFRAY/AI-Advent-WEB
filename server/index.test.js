@@ -56,13 +56,151 @@ test('API stores explicit memory layers with a mocked model', async () => {
     const workingInput = secondAnswerCall.input.find((item) =>
       item.content?.startsWith('Working memory'),
     );
+    const profileInput = secondAnswerCall.input.find((item) =>
+      item.content?.startsWith('Active user profile'),
+    );
 
+    assert.match(profileInput.content, /Краткий деловой/);
     assert.match(longTermInput.content, /Mock durable preference/);
     assert.match(workingInput.content, /Mock working goal/);
+    assert.ok(
+      secondAnswerCall.input.findIndex((item) => item.content?.startsWith('Active user profile')) <
+        secondAnswerCall.input.findIndex((item) => item.content?.startsWith('Long-term memory')),
+    );
     assert.ok(
       secondAnswerCall.input.findIndex((item) => item.content?.startsWith('Long-term memory')) <
         secondAnswerCall.input.findIndex((item) => item.content?.startsWith('Working memory')),
     );
+  } finally {
+    await close();
+  }
+});
+
+test('API lists, edits, and switches profiles for subsequent model requests', async () => {
+  const { baseUrl, calls, close } = await startTestServer();
+
+  try {
+    const profilesResponse = await fetch(`${baseUrl}/api/profiles`);
+    const initial = await profilesResponse.json();
+
+    assert.equal(profilesResponse.status, 200);
+    assert.equal(initial.profiles.length, 2);
+    assert.equal(initial.activeProfile.id, 'concise-business');
+
+    await fetch(`${baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'Explain profiles briefly' }),
+    });
+    const conciseCall = calls.filter((call) => call.kind === 'answer').at(-1);
+    const conciseBlock = conciseCall.input.find((item) =>
+      item.content?.startsWith('Active user profile'),
+    );
+
+    const updateResponse = await fetch(`${baseUrl}/api/profiles/detailed-learning`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ style: 'Объяснять подробно и с аналогиями.' }),
+    });
+    assert.equal(updateResponse.status, 200);
+
+    const activateResponse = await fetch(
+      `${baseUrl}/api/profiles/detailed-learning/activate`,
+      { method: 'POST' },
+    );
+    const activated = await activateResponse.json();
+    assert.equal(activated.activeProfile.id, 'detailed-learning');
+
+    await fetch(`${baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'Explain profiles again' }),
+    });
+    const learningCall = calls.filter((call) => call.kind === 'answer').at(-1);
+    const learningBlock = learningCall.input.find((item) =>
+      item.content?.startsWith('Active user profile'),
+    );
+
+    assert.notEqual(conciseBlock.content, learningBlock.content);
+    assert.match(conciseBlock.content, /Краткий деловой/);
+    assert.match(learningBlock.content, /Объяснять подробно и с аналогиями/);
+
+    const previewResponse = await fetch(`${baseUrl}/api/context-preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'Preview' }),
+    });
+    const preview = await previewResponse.json();
+
+    assert.equal(preview.activeProfile.id, 'detailed-learning');
+    assert.equal(preview.stats.profilePresent, true);
+    assert.ok(preview.stats.profileCharacters > 0);
+  } finally {
+    await close();
+  }
+});
+
+test('API compares the same prompt through every profile without saving duplicate dialogue', async () => {
+  const { baseUrl, calls, close } = await startTestServer();
+
+  try {
+    const response = await fetch(`${baseUrl}/api/profile-comparison`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'Explain event loop' }),
+    });
+    const comparison = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(comparison.comparison.results.length, 2);
+    assert.deepEqual(
+      comparison.comparison.results.map((result) => result.profile.id),
+      ['concise-business', 'detailed-learning'],
+    );
+
+    const answerCalls = calls.filter((call) => call.kind === 'answer');
+    const profileBlocks = answerCalls.map(
+      (call) => call.input.find((item) => item.content?.startsWith('Active user profile')).content,
+    );
+
+    assert.match(profileBlocks[0], /Краткий деловой/);
+    assert.match(profileBlocks[1], /Подробный учебный/);
+
+    await fetch(`${baseUrl}/api/profile-comparison`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'Which loop should I use?' }),
+    });
+    const followUpCalls = calls.filter((call) => call.kind === 'answer').slice(-2);
+    for (const call of followUpCalls) {
+      assert.ok(call.input.some((item) => item.role === 'user' && item.content === 'Explain event loop'));
+      assert.ok(call.input.some((item) => item.role === 'assistant' && item.content === 'Mock answer'));
+    }
+
+    const memoryResponse = await fetch(`${baseUrl}/api/memory`);
+    const memory = await memoryResponse.json();
+    assert.equal(memory.shortTermMessages.length, 0);
+
+    const historyResponse = await fetch(`${baseUrl}/api/profile-comparisons`);
+    const history = await historyResponse.json();
+    assert.equal(history.comparisons.length, 2);
+    assert.equal(history.comparisons[0].question, 'Explain event loop');
+
+    await fetch(`${baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'Temporary memory' }),
+    });
+
+    const clearResponse = await fetch(`${baseUrl}/api/profile-comparisons`, { method: 'DELETE' });
+    const cleared = await clearResponse.json();
+    assert.deepEqual(cleared.comparisons, []);
+    const clearedMemoryResponse = await fetch(`${baseUrl}/api/memory`);
+    const clearedMemory = await clearedMemoryResponse.json();
+    assert.deepEqual(clearedMemory.shortTermMessages, []);
+    assert.equal(clearedMemory.workingMemory.goal, '');
+    assert.equal(clearedMemory.longTermMemory.preferences, '');
+    assert.equal(clearedMemory.activeProfile.id, 'concise-business');
   } finally {
     await close();
   }
@@ -91,6 +229,7 @@ test('API clears all Day 11 memory layers', async () => {
     assert.deepEqual(cleared.shortTermMessages, []);
     assert.equal(cleared.workingMemory.goal, '');
     assert.equal(cleared.longTermMemory.preferences, '');
+    assert.equal(cleared.activeProfile.id, 'concise-business');
 
     await sleep(20);
 
@@ -99,6 +238,7 @@ test('API clears all Day 11 memory layers', async () => {
 
     assert.equal(memory.workingMemory.goal, '');
     assert.equal(memory.longTermMemory.preferences, '');
+    assert.equal(memory.activeProfile.id, 'concise-business');
   } finally {
     await close();
   }

@@ -17,6 +17,17 @@ export const DEFAULT_LONG_TERM_MEMORY = {
   knowledge: '',
 };
 
+export const DEFAULT_USER_PROFILE = {
+  id: '',
+  name: '',
+  description: '',
+  style: '',
+  format: '',
+  constraints: '',
+  isActive: false,
+  updatedAt: null,
+};
+
 const MEMORY_EXTRACTION_SYSTEM_MESSAGE = {
   role: 'system',
   content: [
@@ -68,11 +79,13 @@ export class MemoryLayers {
     shortTermMessages = [],
     workingMemory = DEFAULT_WORKING_MEMORY,
     longTermMemory = DEFAULT_LONG_TERM_MEMORY,
+    activeProfile = DEFAULT_USER_PROFILE,
     settings = {},
   } = {}) {
     const normalizedSettings = this.normalizeSettings(settings);
     const recentShortTerm = shortTermMessages.slice(-normalizedSettings.shortTermLimit);
     const conversationHistoryInput = [
+      buildUserProfileInput(activeProfile),
       buildLongTermMemoryInput(longTermMemory),
       buildWorkingMemoryInput(workingMemory),
       ...buildConversationInput(recentShortTerm),
@@ -85,6 +98,8 @@ export class MemoryLayers {
         shortTermSentCount: recentShortTerm.length,
         shortTermDroppedCount: Math.max(shortTermMessages.length - recentShortTerm.length, 0),
         shortTermLimit: normalizedSettings.shortTermLimit,
+        profileCharacters: JSON.stringify(normalizeUserProfile(activeProfile)).length,
+        profilePresent: hasProfileContent(activeProfile),
         workingMemoryCharacters: JSON.stringify(normalizeWorkingMemory(workingMemory)).length,
         longTermMemoryCharacters: JSON.stringify(normalizeLongTermMemory(longTermMemory)).length,
       },
@@ -166,6 +181,42 @@ export function normalizeLongTermMemory(memory) {
   return normalizeFixedKeys(memory, DEFAULT_LONG_TERM_MEMORY);
 }
 
+export function normalizeUserProfile(profile) {
+  return {
+    ...normalizeFixedKeys(profile, {
+      id: DEFAULT_USER_PROFILE.id,
+      name: DEFAULT_USER_PROFILE.name,
+      description: DEFAULT_USER_PROFILE.description,
+      style: DEFAULT_USER_PROFILE.style,
+      format: DEFAULT_USER_PROFILE.format,
+      constraints: DEFAULT_USER_PROFILE.constraints,
+    }),
+    isActive: Boolean(profile?.isActive),
+    updatedAt: typeof profile?.updatedAt === 'string' ? profile.updatedAt : null,
+  };
+}
+
+function buildUserProfileInput(profile) {
+  const normalized = normalizeUserProfile(profile);
+  const body = formatMemoryBlock({
+    name: normalized.name,
+    description: normalized.description,
+    style: normalized.style,
+    format: normalized.format,
+    constraints: normalized.constraints,
+  });
+
+  return {
+    role: 'system',
+    content: [
+      'Active user profile. Apply these stable personalization preferences automatically.',
+      'If the latest user message conflicts with this profile, follow the latest message for the current response only.',
+      '',
+      body,
+    ].join('\n'),
+  };
+}
+
 function buildWorkingMemoryInput(memory) {
   const normalized = normalizeWorkingMemory(memory);
   const body = formatMemoryBlock(normalized);
@@ -193,6 +244,14 @@ function formatMemoryBlock(memory) {
     .join('\n');
 
   return nonEmpty || 'No saved memory in this layer yet.';
+}
+
+function hasProfileContent(profile) {
+  const normalized = normalizeUserProfile(profile);
+
+  return ['name', 'description', 'style', 'format', 'constraints'].some((key) =>
+    normalized[key].trim(),
+  );
 }
 
 function parseMemoryJson(text) {
