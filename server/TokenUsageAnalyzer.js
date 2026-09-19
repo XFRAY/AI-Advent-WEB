@@ -1,8 +1,17 @@
-const DEFAULT_MODEL = 'gpt-4o';
+const DEFAULT_MODEL = 'gpt-5.6-terra';
 const TOKEN_COUNT_ENDPOINT = 'https://api.openai.com/v1/responses/input_tokens';
 const NEAR_LIMIT_RATIO = 0.85;
 
 export const MODEL_TOKEN_CONFIG = {
+  'gpt-5.6-terra': {
+    contextWindow: 1_050_000,
+    maxOutputTokens: 128_000,
+    pricing: {
+      input: 2,
+      cachedInput: 0.2,
+      output: 12,
+    },
+  },
   'gpt-3.5-turbo': {
     contextWindow: 16_385,
     maxOutputTokens: 4_096,

@@ -14,13 +14,21 @@ import {
 } from './LlmAgent.js';
 import { MessageStore } from './MessageStore.js';
 import { MODEL_TOKEN_CONFIG } from './TokenUsageAnalyzer.js';
+import {
+  TaskStateError,
+  buildTaskStateInput,
+  createInitialTaskState,
+  normalizeTaskState,
+  recordTaskArtifact,
+  transitionTaskState,
+} from './TaskStateMachine.js';
 
 const port = Number(process.env.PORT || 3001);
 
 const createDefaultAgent = () =>
   new LlmAgent({
     apiKey: process.env.OPENAI_API_KEY,
-    model: process.env.OPENAI_MODEL || 'gpt-4o',
+    model: process.env.OPENAI_MODEL || 'gpt-5.6-terra',
     tokenCountingMode: process.env.OPENAI_TOKEN_COUNTING || 'estimate',
   });
 
@@ -37,10 +45,46 @@ export function createApp({
       model: agent.model,
     });
 
+  app.use((request, response, next) => {
+    const origin = request.headers.origin;
+
+    if (origin && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      response.setHeader('Access-Control-Allow-Origin', origin);
+      response.setHeader('Vary', 'Origin');
+      response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+    }
+
+    if (request.method === 'OPTIONS') {
+      response.sendStatus(204);
+      return;
+    }
+
+    next();
+  });
   app.use(express.json());
 
   app.get('/api/health', (_request, response) => {
     response.json({ ok: true });
+  });
+
+  app.get('/api/task-state', (_request, response) => {
+    response.json({ taskState: getCurrentTaskState(messageStore) });
+  });
+
+  app.post('/api/task-state/event', (request, response) => {
+    try {
+      const current = getCurrentTaskState(messageStore);
+      const taskState = transitionTaskState(current, request.body?.event, request.body?.payload);
+      messageStore.saveTaskState(taskState);
+      response.json({ taskState });
+    } catch (error) {
+      if (error instanceof TaskStateError) {
+        response.status(400).json({ error: error.message });
+        return;
+      }
+      sendError(response, error, 'Unable to update task state');
+    }
   });
 
   app.get('/api/memory', (_request, response) => {
@@ -186,25 +230,47 @@ export function createApp({
 
   app.delete('/api/memory', (_request, response) => {
     messageStore.clearMemory();
+    messageStore.clearTaskState();
+    const taskState = getCurrentTaskState(messageStore);
 
     response.json({
       shortTermMessages: [],
       workingMemory: messageStore.getWorkingMemory(),
       longTermMemory: messageStore.getLongTermMemory(),
       activeProfile: messageStore.getActiveProfile(),
+      taskState,
     });
   });
 
   app.post('/api/chat', async (request, response) => {
     try {
       const message = agent.normalizeInput(request.body?.message);
+      const taskState = getCurrentTaskState(messageStore);
+
+      if (taskState.isPaused) {
+        response.status(409).json({
+          error: 'Задача находится на паузе. Возобновите её перед отправкой сообщения.',
+          taskState,
+        });
+        return;
+      }
+
       const settings = memory.normalizeSettings(request.body?.settings);
       const before = buildCurrentMemoryContext({ messageStore, memory, settings });
+      const conversationHistoryInput = [
+        buildTaskStateInput(taskState),
+        ...before.prepared.conversationHistoryInput,
+      ];
       const result = await agent.ask({
         message,
         history: before.shortTermMessages,
-        conversationHistoryInput: before.prepared.conversationHistoryInput,
+        conversationHistoryInput,
       });
+      const updatedTaskState = recordTaskArtifact(taskState, {
+        userMessage: message,
+        agentAnswer: result.answer,
+      });
+      messageStore.saveTaskState(updatedTaskState);
       const messages = saveMemoryExchange({
         messageStore,
         message,
@@ -216,6 +282,7 @@ export function createApp({
             longTermMemory: [],
           },
           memoryUpdateStatus: 'pending',
+          taskState: updatedTaskState,
         },
       });
       updateMemoryInBackground({
@@ -234,6 +301,7 @@ export function createApp({
         workingMemory: before.workingMemory,
         longTermMemory: before.longTermMemory,
         activeProfile: before.activeProfile,
+        taskState: updatedTaskState,
         memoryChanges: {
           workingMemory: [],
           longTermMemory: [],
@@ -247,6 +315,15 @@ export function createApp({
   });
 
   return app;
+}
+
+function getCurrentTaskState(messageStore) {
+  const stored = messageStore.getTaskState();
+  const taskState = stored ? normalizeTaskState(stored) : createInitialTaskState();
+
+  if (!stored) messageStore.saveTaskState(taskState);
+
+  return taskState;
 }
 
 function buildCurrentMemoryContext({

@@ -6,7 +6,7 @@ import {
   estimateCost,
 } from './TokenUsageAnalyzer.js';
 
-const DEFAULT_MODEL = 'gpt-4o';
+const DEFAULT_MODEL = 'gpt-5.6-terra';
 const REQUEST_SETTINGS = {
   temperature: null,
   reasoningEffort: null,

@@ -1,446 +1,209 @@
-import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import DeleteSweepRoundedIcon from '@mui/icons-material/DeleteSweepRounded';
-import EditRoundedIcon from '@mui/icons-material/EditRounded';
-import FormatListBulletedRoundedIcon from '@mui/icons-material/FormatListBulletedRounded';
-import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
-import RuleRoundedIcon from '@mui/icons-material/RuleRounded';
+import PauseRoundedIcon from '@mui/icons-material/PauseRounded';
+import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 import SendRoundedIcon from '@mui/icons-material/SendRounded';
-import StyleRoundedIcon from '@mui/icons-material/StyleRounded';
-import {
-  Alert, Box, Button, CircularProgress, CssBaseline, Dialog, DialogActions,
-  DialogContent, DialogTitle, IconButton, Paper, Stack, TextField,
-  ThemeProvider, Tooltip, Typography, createTheme,
-} from '@mui/material';
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import SkipNextRoundedIcon from '@mui/icons-material/SkipNextRounded';
+import { Alert, Box, Button, CircularProgress, CssBaseline, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Paper, Stack, TextField, ThemeProvider, Tooltip, Typography, createTheme } from '@mui/material';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
-const INK = '#18201f';
-const PROFILE_COLORS = ['#12675c', '#8a4f34', '#3d5a9c', '#7a3e73'];
-const DEFAULT_SETTINGS = { shortTermLimit: 8 };
+const STAGES = [
+  { id: 'planning', label: 'Планирование' },
+  { id: 'execution', label: 'Выполнение' },
+  { id: 'validation', label: 'Проверка' },
+  { id: 'done', label: 'Готово' },
+];
 
 const theme = createTheme({
-  palette: {
-    background: { default: '#edf2ef', paper: '#ffffff' },
-    primary: { main: '#12675c' },
-    text: { primary: INK, secondary: '#64706c' },
-    error: { main: '#b94747' },
-  },
+  palette: { background: { default: '#f3f5f1', paper: '#fff' }, primary: { main: '#176b5b' }, secondary: { main: '#b65f33' }, text: { primary: '#17211f', secondary: '#65716d' } },
   shape: { borderRadius: 8 },
-  typography: {
-    fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    h1: { fontSize: '1.35rem', fontWeight: 800, letterSpacing: 0, lineHeight: 1.15 },
-    h2: { fontSize: '1rem', fontWeight: 800, letterSpacing: 0, lineHeight: 1.25 },
-    body2: { fontSize: '0.92rem', lineHeight: 1.55 },
-    caption: { fontSize: '0.78rem', letterSpacing: 0, lineHeight: 1.4 },
-  },
-  components: {
-    MuiButton: { styleOverrides: { root: { borderRadius: 8, fontWeight: 750, minHeight: 42, textTransform: 'none' } } },
-    MuiIconButton: { styleOverrides: { root: { borderRadius: 8 } } },
-    MuiTextField: {
-      defaultProps: { size: 'small' },
-      styleOverrides: { root: { '& .MuiOutlinedInput-root': { background: '#fff', borderRadius: 8 } } },
-    },
-  },
+  typography: { fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', h1: { fontSize: '1.35rem', fontWeight: 800, letterSpacing: 0 }, h2: { fontSize: '1rem', fontWeight: 800, letterSpacing: 0 } },
 });
 
 function App() {
-  const [profiles, setProfiles] = useState([]);
-  const [modelName, setModelName] = useState('gpt-4o');
-  const [question, setQuestion] = useState('');
-  const [pendingQuestion, setPendingQuestion] = useState('');
-  const [comparisons, setComparisons] = useState([]);
-  const [editingProfile, setEditingProfile] = useState(null);
+  const [taskState, setTaskState] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [isBooting, setIsBooting] = useState(true);
-  const [isComparing, setIsComparing] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isClearing, setIsClearing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const historyRef = useRef(null);
 
   useEffect(() => {
-    let mounted = true;
-
-    Promise.all([fetch('/api/profiles'), fetch('/api/config'), fetch('/api/profile-comparisons')])
-      .then(async ([profilesResponse, configResponse, comparisonsResponse]) => {
-        const profilesData = await profilesResponse.json().catch(() => ({}));
-        const configData = await configResponse.json().catch(() => ({}));
-        const comparisonsData = await comparisonsResponse.json().catch(() => ({}));
-        if (!profilesResponse.ok) throw new Error(profilesData.error || 'Не удалось загрузить профили.');
-        if (mounted) {
-          setProfiles(profilesData.profiles ?? []);
-          setComparisons(comparisonsResponse.ok ? comparisonsData.comparisons ?? [] : []);
-          setModelName(configResponse.ok && configData.model ? configData.model : 'gpt-4o');
-        }
+    Promise.all([request('/api/task-state'), request('/api/memory')])
+      .then(([stateData, memoryData]) => {
+        setTaskState(stateData.taskState);
+        setMessages(memoryData.shortTermMessages || []);
       })
-      .catch((requestError) => mounted && setError(formatRequestError(requestError, 'Не удалось загрузить профили.')))
-      .finally(() => mounted && setIsBooting(false));
-
-    return () => { mounted = false; };
+      .catch((requestError) => setError(requestError.message));
   }, []);
 
-  async function handleCompare(event) {
+  useEffect(() => {
+    if (historyRef.current) historyRef.current.scrollTop = historyRef.current.scrollHeight;
+  }, [messages, busy]);
+
+  async function sendEvent(event) {
+    setBusy(true);
+    setError('');
+    try {
+      const data = await request('/api/task-state/event', { method: 'POST', body: JSON.stringify({ event }) });
+      setTaskState(data.taskState);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendMessage(event) {
     event.preventDefault();
-    const message = question.trim();
-    if (!message || isComparing) return;
+    const text = message.trim();
+    if (!text || taskState?.isPaused) return;
+    const optimisticId = `pending-${Date.now()}`;
+    const optimisticMessage = {
+      id: optimisticId,
+      role: 'user',
+      text,
+      metadata: { taskState },
+    };
 
+    setBusy(true);
     setError('');
-    setIsComparing(true);
-    setPendingQuestion(message);
-    setQuestion('');
+    setMessage('');
+    setMessages((current) => [...current, optimisticMessage]);
     try {
-      const response = await fetch('/api/profile-comparison', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, settings: DEFAULT_SETTINGS }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Не удалось получить сравнение.');
-      setComparisons((current) => [...current, data.comparison]);
+      const data = await request('/api/chat', { method: 'POST', body: JSON.stringify({ message: text }) });
+      setMessages(data.shortTermMessages || []);
+      setTaskState(data.taskState);
     } catch (requestError) {
-      setQuestion(message);
-      setError(formatRequestError(requestError, 'Не удалось получить сравнение.'));
+      setMessages((current) => current.filter((item) => item.id !== optimisticId));
+      setMessage(text);
+      setError(requestError.message);
     } finally {
-      setPendingQuestion('');
-      setIsComparing(false);
+      setBusy(false);
     }
   }
 
-  async function handleProfileSave(profile) {
-    if (!profile?.id || isSaving) return;
-    setError('');
-    setIsSaving(true);
+  async function clearHistory() {
+    setBusy(true);
     try {
-      const response = await fetch(`/api/profiles/${encodeURIComponent(profile.id)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(profile),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Не удалось сохранить профиль.');
-      setProfiles((current) => current.map((item) => item.id === data.profile.id ? data.profile : item));
-      setEditingProfile(null);
+      const data = await request('/api/memory', { method: 'DELETE' });
+      setMessages([]);
+      setTaskState(data.taskState);
     } catch (requestError) {
-      setError(formatRequestError(requestError, 'Не удалось сохранить профиль.'));
+      setError(requestError.message);
     } finally {
-      setIsSaving(false);
+      setBusy(false);
     }
   }
 
-  async function handleClearHistory() {
-    if (isClearing) return;
-    setError('');
-    setIsClearing(true);
-    try {
-      const response = await fetch('/api/profile-comparisons', { method: 'DELETE' });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Не удалось очистить историю.');
-      setComparisons([]);
-    } catch (requestError) {
-      setError(formatRequestError(requestError, 'Не удалось очистить историю.'));
-    } finally {
-      setIsClearing(false);
-    }
-  }
-
-  return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <Box component="main" sx={{ minHeight: '100vh', p: { xs: 1.25, md: 2 } }}>
-        <Box
-          sx={{
-            display: 'grid',
-            gap: 1.5,
-            gridTemplateRows: { xs: 'auto', md: 'auto minmax(0, 1fr) auto' },
-            height: { xs: 'auto', md: 'calc(100vh - 32px)' },
-            maxWidth: 1500,
-            minHeight: 0,
-            mx: 'auto',
-          }}
-        >
-          <Header
-            historyCount={comparisons.length}
-            isClearing={isClearing}
-            modelName={modelName}
-            onClearHistory={handleClearHistory}
-            profileCount={profiles.length}
-          />
-          {error && <Alert severity="error">{error}</Alert>}
-          <Box
-            aria-busy={isBooting}
-            sx={{
-              display: 'grid',
-              gap: 1.5,
-              gridTemplateColumns: { xs: '1fr', md: `repeat(${Math.max(profiles.length, 1)}, minmax(0, 1fr))` },
-              minHeight: 0,
-            }}
-          >
-            {isBooting
-              ? [0, 1].map((index) => <ProfileSkeleton key={index} />)
-              : profiles.map((profile, index) => (
-                  <ProfilePanel
-                    color={PROFILE_COLORS[index % PROFILE_COLORS.length]}
-                    comparisons={comparisons}
-                    isComparing={isComparing}
-                    key={profile.id}
-                    onEdit={() => setEditingProfile(profile)}
-                    pendingQuestion={pendingQuestion}
-                    profile={profile}
-                  />
-                ))}
+  return <ThemeProvider theme={theme}>
+    <CssBaseline />
+    <Box component="main" sx={{ height: '100dvh', overflow: 'hidden', p: { xs: 1, md: 2 } }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: { xs: 1, md: 1.5 }, height: '100%', maxWidth: 1180, mx: 'auto', minHeight: 0 }}>
+        <Header busy={busy} messageCount={messages.length} onClear={clearHistory} />
+        {error && <Alert severity="error">{error}</Alert>}
+        <TaskPanel busy={busy} onEvent={sendEvent} taskState={taskState} />
+        <Paper component="section" elevation={0} sx={{ border: '1px solid rgba(23,33,31,.13)', display: 'grid', flex: 1, gridTemplateRows: 'minmax(0, 1fr) auto', minHeight: 0, overflow: 'hidden' }}>
+          <Stack ref={historyRef} spacing={1.25} sx={{ minHeight: 0, overflowY: 'auto', p: { xs: 1.5, md: 2 } }}>
+            {messages.length === 0 && <Stack sx={{ alignItems: 'center', color: 'text.secondary', height: '100%', justifyContent: 'center', textAlign: 'center' }}><Typography fontWeight={800}>Диалог начнётся здесь</Typography><Typography variant="body2">Агент уже знает текущий этап и ожидаемое действие.</Typography></Stack>}
+            {messages.map((item) => <Message key={item.id} message={item} />)}
+            {busy && messages.length > 0 && <CircularProgress size={20} />}
+          </Stack>
+          <Box component="form" onSubmit={sendMessage} sx={{ borderTop: '1px solid rgba(23,33,31,.1)', display: 'flex', gap: 1, p: 1.25 }}>
+            <TextField disabled={busy || taskState?.isPaused} fullWidth label={taskState?.isPaused ? 'Задача на паузе' : 'Сообщение агенту'} multiline maxRows={5} onChange={(event) => setMessage(event.target.value)} value={message} />
+            <Tooltip title={taskState?.isPaused ? 'Сначала продолжите задачу' : 'Отправить'}><span><IconButton aria-label="Отправить" color="primary" disabled={busy || taskState?.isPaused || !message.trim()} type="submit" sx={{ height: 48, width: 48 }}><SendRoundedIcon /></IconButton></span></Tooltip>
           </Box>
-          <QuestionComposer
-            disabled={isBooting || isComparing || profiles.length === 0}
-            isComparing={isComparing}
-            onChange={setQuestion}
-            onSubmit={handleCompare}
-            question={question}
-          />
-        </Box>
+        </Paper>
       </Box>
-      <ProfileEditor
-        isSaving={isSaving}
-        onClose={() => setEditingProfile(null)}
-        onSave={handleProfileSave}
-        open={Boolean(editingProfile)}
-        profile={editingProfile}
-      />
-    </ThemeProvider>
-  );
-}
-
-function Header({ historyCount, isClearing, modelName, onClearHistory, profileCount }) {
-  return (
-    <Paper component="header" elevation={0} sx={{ alignItems: 'center', border: '1px solid rgba(24,32,31,0.12)', display: 'flex', justifyContent: 'space-between', gap: 1, p: 1.25 }}>
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-        <Box sx={{ bgcolor: INK, borderRadius: 1, color: '#fff', display: 'flex', p: 0.8 }}><AutoAwesomeRoundedIcon fontSize="small" /></Box>
-        <Box>
-          <Typography component="h1" variant="h1">AI Advent · День 12</Typography>
-          <Typography color="text.secondary" variant="caption">Один вопрос, разные профили</Typography>
-        </Box>
-      </Stack>
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-        <Stack sx={{ alignItems: 'flex-end' }}>
-          <Typography fontWeight={760} variant="caption">{profileCount} профиля · {historyCount} запросов</Typography>
-          <Typography color="text.secondary" variant="caption">{modelName}</Typography>
-        </Stack>
-        <Tooltip title="Очистить всю переписку и память, сохранив профили">
-          <span>
-            <IconButton aria-label="Очистить всю переписку и память" color="error" disabled={isClearing} onClick={onClearHistory}>
-              {isClearing ? <CircularProgress color="inherit" size={18} /> : <DeleteSweepRoundedIcon fontSize="small" />}
-            </IconButton>
-          </span>
-        </Tooltip>
-      </Stack>
-    </Paper>
-  );
-}
-
-function ProfilePanel({ color, comparisons, isComparing, onEdit, pendingQuestion, profile }) {
-  const history = comparisons
-    .map((comparison) => ({
-      ...comparison.results.find((result) => result.profile.id === profile.id),
-      comparisonId: comparison.id,
-      question: comparison.question,
-    }))
-    .filter((entry) => entry.answer);
-
-  return (
-    <Paper component="section" elevation={0} sx={{ border: `1px solid ${withAlpha(color, 0.25)}`, display: 'grid', gridTemplateRows: 'auto auto minmax(0, 1fr)', height: { md: '100%' }, minHeight: { xs: 560, md: 0 }, overflow: 'hidden' }}>
-      <Box sx={{ bgcolor: withAlpha(color, 0.09), borderBottom: `1px solid ${withAlpha(color, 0.18)}`, p: 1.35 }}>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}>
-          <Stack direction="row" spacing={0.9} sx={{ alignItems: 'center', minWidth: 0 }}>
-            <PersonRoundedIcon sx={{ color }} />
-            <Box sx={{ minWidth: 0 }}>
-              <Typography component="h2" sx={{ color, overflowWrap: 'anywhere' }} variant="h2">{profile.name}</Typography>
-              <Typography color="text.secondary" variant="caption">{profile.description}</Typography>
-            </Box>
-          </Stack>
-          <Tooltip title="Редактировать профиль">
-            <IconButton aria-label={`Редактировать ${profile.name}`} onClick={onEdit} sx={{ color }}><EditRoundedIcon fontSize="small" /></IconButton>
-          </Tooltip>
-        </Stack>
-      </Box>
-      <Box sx={{ borderBottom: '1px solid rgba(24,32,31,0.09)', display: 'grid', gap: 0.75, p: 1.25 }}>
-        <ProfileRule color={color} icon={<StyleRoundedIcon />} label="Стиль" value={profile.style} />
-        <ProfileRule color={color} icon={<FormatListBulletedRoundedIcon />} label="Формат" value={profile.format} />
-        <ProfileRule color={color} icon={<RuleRoundedIcon />} label="Ограничения" value={profile.constraints} />
-      </Box>
-      <Box sx={{ minHeight: 0, overflowY: 'auto', p: 1.35 }}>
-        {history.length > 0 || isComparing ? (
-          <ChatHistory
-            color={color}
-            history={history}
-            isComparing={isComparing}
-            pendingQuestion={pendingQuestion}
-            profileName={profile.name}
-          />
-        ) : (
-          <Stack spacing={1} sx={{ alignItems: 'center', color: 'text.secondary', height: '100%', justifyContent: 'center', textAlign: 'center' }}>
-            <AutoAwesomeRoundedIcon sx={{ color, fontSize: 30 }} />
-            <Typography variant="body2">Ответ этого профиля появится здесь.</Typography>
-          </Stack>
-        )}
-      </Box>
-    </Paper>
-  );
-}
-
-function ChatHistory({ color, history, isComparing, pendingQuestion, profileName }) {
-  const scrollRef = useRef(null);
-
-  useLayoutEffect(() => {
-    const node = scrollRef.current;
-    if (node) node.scrollTop = node.scrollHeight;
-  }, [history.length, isComparing]);
-
-  return (
-    <Stack ref={scrollRef} spacing={1.2} sx={{ height: '100%', overflowY: 'auto', pr: 0.35 }}>
-      {history.map((answer) => (
-        <React.Fragment key={`${answer.comparisonId}-${answer.profile.id}`}>
-          <Paper
-            component="article"
-            elevation={0}
-            sx={{
-              alignSelf: 'flex-end',
-              bgcolor: withAlpha(color, 0.1),
-              border: `1px solid ${withAlpha(color, 0.2)}`,
-              borderRadius: '8px 8px 2px 8px',
-              maxWidth: '86%',
-              px: 1.1,
-              py: 0.85,
-            }}
-          >
-            <Typography color="text.secondary" fontWeight={760} variant="caption">Вы</Typography>
-            <Typography sx={{ mt: 0.25, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }} variant="body2">{answer.question}</Typography>
-          </Paper>
-          <Paper
-            component="article"
-            elevation={0}
-            sx={{
-              alignSelf: 'flex-start',
-              bgcolor: '#f8faf9',
-              border: '1px solid rgba(24,32,31,0.1)',
-              borderRadius: '8px 8px 8px 2px',
-              maxWidth: '94%',
-              px: 1.1,
-              py: 0.85,
-            }}
-          >
-            <Typography sx={{ color, fontWeight: 760 }} variant="caption">{profileName}</Typography>
-            <Typography sx={{ mt: 0.3, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }} variant="body2">{answer.answer}</Typography>
-            <Stack direction="row" sx={{ borderTop: '1px solid rgba(24,32,31,0.08)', flexWrap: 'wrap', gap: 1, mt: 0.8, pt: 0.65 }}>
-              <Meta label="Profile" value={`${answer.contextStats.profileCharacters} симв.`} />
-              <Meta label="Input" value={`${formatNumber(answer.usage?.inputTokens)} ток.`} />
-              <Meta label="Output" value={`${formatNumber(answer.usage?.outputTokens)} ток.`} />
-            </Stack>
-          </Paper>
-        </React.Fragment>
-      ))}
-      {isComparing && pendingQuestion && (
-        <>
-          <Paper
-            component="article"
-            elevation={0}
-            sx={{
-              alignSelf: 'flex-end',
-              bgcolor: withAlpha(color, 0.1),
-              border: `1px solid ${withAlpha(color, 0.2)}`,
-              borderRadius: '8px 8px 2px 8px',
-              maxWidth: '86%',
-              px: 1.1,
-              py: 0.85,
-            }}
-          >
-            <Typography color="text.secondary" fontWeight={760} variant="caption">Вы</Typography>
-            <Typography sx={{ mt: 0.25, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }} variant="body2">{pendingQuestion}</Typography>
-          </Paper>
-          <Paper
-            aria-label={`${profileName} формирует ответ`}
-            component="article"
-            elevation={0}
-            sx={{
-              alignSelf: 'flex-start',
-              bgcolor: '#f8faf9',
-              border: '1px solid rgba(24,32,31,0.1)',
-              borderRadius: '8px 8px 8px 2px',
-              px: 1.1,
-              py: 0.9,
-            }}
-          >
-            <Stack direction="row" spacing={0.8} sx={{ alignItems: 'center' }}>
-              <CircularProgress size={15} sx={{ color }} />
-              <Typography sx={{ color, fontWeight: 760 }} variant="caption">{profileName} отвечает...</Typography>
-            </Stack>
-          </Paper>
-        </>
-      )}
-    </Stack>
-  );
-}
-
-function ProfileRule({ color, icon, label, value }) {
-  return (
-    <Box sx={{ display: 'grid', gap: 0.75, gridTemplateColumns: '20px 92px minmax(0, 1fr)', alignItems: 'start' }}>
-      <Box sx={{ color, display: 'flex', '& svg': { fontSize: 17 } }}>{icon}</Box>
-      <Typography color="text.secondary" fontWeight={760} variant="caption">{label}</Typography>
-      <Typography sx={{ overflowWrap: 'anywhere' }} variant="caption">{value || '—'}</Typography>
     </Box>
-  );
+  </ThemeProvider>;
 }
 
-function QuestionComposer({ disabled, isComparing, onChange, onSubmit, question }) {
-  return (
-    <Paper component="form" elevation={0} onSubmit={onSubmit} sx={{ border: '1px solid rgba(24,32,31,0.13)', display: 'grid', gap: 1, gridTemplateColumns: { xs: '1fr', sm: 'minmax(0, 1fr) auto' }, p: 0.9 }}>
-      <TextField disabled={disabled} fullWidth maxRows={4} minRows={1} multiline onChange={(event) => onChange(event.target.value)} placeholder="Задайте один вопрос обоим профилям" value={question} />
-      <Button disabled={disabled || !question.trim()} endIcon={isComparing ? <CircularProgress color="inherit" size={16} /> : <SendRoundedIcon />} type="submit" variant="contained">
-        {isComparing ? 'Сравниваю' : 'Сравнить ответы'}
-      </Button>
-    </Paper>
-  );
+function Header({ busy, messageCount, onClear }) {
+  return <Paper component="header" elevation={0} sx={{ alignItems: 'center', border: '1px solid rgba(23,33,31,.13)', display: 'flex', justifyContent: 'space-between', p: 1.5 }}>
+    <Box><Typography component="h1" variant="h1">AI Advent · День 13</Typography><Typography color="text.secondary" variant="body2">Task State Machine</Typography></Box>
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}><Typography color="text.secondary" variant="caption">{messageCount} сообщений</Typography><Tooltip title="Очистить диалог"><span><IconButton aria-label="Очистить диалог" color="error" disabled={busy} onClick={onClear}><DeleteSweepRoundedIcon /></IconButton></span></Tooltip></Stack>
+  </Paper>;
 }
 
-function ProfileSkeleton() {
-  return <Paper elevation={0} sx={{ border: '1px solid rgba(24,32,31,0.1)', minHeight: 560, p: 2 }}><Stack spacing={1} sx={{ alignItems: 'center', height: '100%', justifyContent: 'center' }}><CircularProgress size={28} /><Typography color="text.secondary" variant="body2">Загружаю профиль...</Typography></Stack></Paper>;
+function TaskPanel({ busy, onEvent, taskState }) {
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const activeIndex = Math.max(STAGES.findIndex((stage) => stage.id === taskState?.stage), 0);
+  return <>
+  <Paper component="section" elevation={0} sx={{ border: '1px solid rgba(23,33,31,.13)', px: { xs: 1.25, md: 1.5 }, py: 1 }}>
+    <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25} sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.75 }}><Typography component="h2" variant="h2">Состояние задачи</Typography>{taskState?.isPaused && <Typography sx={{ bgcolor: '#f7e5d8', color: '#8d431f', px: 1, py: .2, borderRadius: 1 }} variant="caption">На паузе</Typography>}</Stack>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', mb: 0.75 }}>
+          {STAGES.map((stage, index) => <Box key={stage.id} sx={{ minWidth: 0, pr: index < 3 ? 1 : 0 }}><Box sx={{ bgcolor: index <= activeIndex ? 'primary.main' : '#dce2df', height: 5, mb: .65 }} /><Typography color={index === activeIndex ? 'primary.main' : 'text.secondary'} fontWeight={index === activeIndex ? 800 : 500} sx={{ overflowWrap: 'anywhere' }} variant="caption">{stage.label}</Typography></Box>)}
+        </Box>
+        <Box sx={{ display: 'grid', gap: { xs: 0.5, md: 2 }, gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr) minmax(0, 1fr)' } }}>
+          <Box><Typography color="text.secondary" variant="caption">Текущий шаг</Typography><Typography fontWeight={800} variant="body2">{taskState?.currentStep || 'Загрузка...'}</Typography></Box>
+          <Box><Typography color="text.secondary" variant="caption">Ожидаемое действие</Typography><Typography variant="body2">{taskState?.expectedAction || 'Загрузка...'}</Typography></Box>
+        </Box>
+      </Box>
+      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+        {taskState?.isPaused ? <Button disabled={busy} onClick={() => onEvent('resume')} startIcon={<PlayArrowRoundedIcon />} variant="contained">Продолжить</Button> : <Button disabled={busy || !taskState} onClick={() => onEvent('pause')} startIcon={<PauseRoundedIcon />} variant="outlined">Пауза</Button>}
+        <Button disabled={busy || !taskState || taskState.isPaused || taskState.stage === 'done'} onClick={() => onEvent('advance')} startIcon={<SkipNextRoundedIcon />} variant="contained">Следующий этап</Button>
+        {taskState?.stage === 'done' && <Button onClick={() => setSummaryOpen(true)} variant="contained">Итог задачи</Button>}
+        <Button color="secondary" disabled={busy} onClick={() => onEvent('reset')} variant="text">Сброс</Button>
+      </Stack>
+    </Stack>
+  </Paper>
+  <Dialog fullWidth maxWidth="md" onClose={() => setSummaryOpen(false)} open={summaryOpen}>
+    <DialogTitle>Итог задачи</DialogTitle>
+    <DialogContent dividers>
+      <Typography sx={{ overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }} variant="body2">
+        {taskState?.artifacts?.finalSummary || 'Для этой задачи ещё нет сохранённого итога.'}
+      </Typography>
+    </DialogContent>
+    <DialogActions><Button onClick={() => setSummaryOpen(false)}>Закрыть</Button></DialogActions>
+  </Dialog>
+  </>;
 }
 
-function ProfileEditor({ isSaving, onClose, onSave, open, profile }) {
-  const [draft, setDraft] = useState(profile ?? {});
-  useEffect(() => setDraft(profile ?? {}), [profile]);
-
-  return (
-    <Dialog fullWidth maxWidth="sm" onClose={isSaving ? undefined : onClose} open={open}>
-      <DialogTitle>Настройка профиля</DialogTitle>
-      <DialogContent><Stack spacing={1.25} sx={{ pt: 0.5 }}>
-        {[
-          ['name', 'Название', 1], ['description', 'Описание', 2], ['style', 'Стиль', 2],
-          ['format', 'Формат', 2], ['constraints', 'Ограничения', 2],
-        ].map(([key, label, rows]) => (
-          <TextField key={key} label={label} multiline={rows > 1} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} rows={rows > 1 ? rows : undefined} value={draft[key] ?? ''} />
-        ))}
-      </Stack></DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button disabled={isSaving} onClick={onClose}>Отмена</Button>
-        <Button disabled={isSaving || !(draft.name ?? '').trim()} onClick={() => onSave(draft)} variant="contained">{isSaving ? 'Сохраняю...' : 'Сохранить'}</Button>
-      </DialogActions>
-    </Dialog>
-  );
+function Message({ message }) {
+  const isUser = message.role === 'user';
+  const snapshot = message.metadata?.taskState;
+  return <Paper elevation={0} sx={{ alignSelf: isUser ? 'flex-end' : 'flex-start', bgcolor: isUser ? '#e5f1ed' : '#f5f0e9', border: '1px solid rgba(23,33,31,.1)', maxWidth: '82%', p: 1.25 }}>
+    <Typography color="text.secondary" fontWeight={800} variant="caption">{isUser ? 'Вы' : 'Агент'}</Typography><Typography sx={{ overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }} variant="body2">{message.text}</Typography>
+    {snapshot && <Typography color="text.secondary" sx={{ display: 'block', mt: .75 }} variant="caption">{snapshot.stage} · {snapshot.currentStep}{snapshot.isPaused ? ' · пауза' : ''}</Typography>}
+  </Paper>;
 }
 
-function Meta({ label, value }) {
-  return <Typography color="text.secondary" variant="caption">{label}: <Box component="span" sx={{ color: INK, fontWeight: 760 }}>{value}</Box></Typography>;
+async function request(url, options = {}) {
+  const requestOptions = { headers: { 'Content-Type': 'application/json' }, ...options };
+  let response;
+
+  try {
+    response = await fetch(url, requestOptions);
+  } catch {
+    response = null;
+  }
+
+  if (!isJsonResponse(response) && url.startsWith('/api/')) {
+    try {
+      response = await fetch(`http://127.0.0.1:3001${url}`, requestOptions);
+    } catch {
+      response = null;
+    }
+  }
+
+  if (!isJsonResponse(response)) {
+    throw new Error('API недоступен. Запустите сервер командой npm run dev:server.');
+  }
+
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Ошибка запроса');
+  return data;
 }
 
-function formatNumber(value) { return new Intl.NumberFormat('ru-RU').format(Number(value) || 0); }
-function formatRequestError(error, fallback) {
-  if (error instanceof TypeError && error.message === 'Failed to fetch') return 'Не удалось подключиться к локальному API.';
-  return error instanceof Error ? error.message : fallback;
-}
-function withAlpha(hex, alpha) {
-  const value = hex.replace('#', '');
-  return `rgba(${parseInt(value.slice(0, 2), 16)}, ${parseInt(value.slice(2, 4), 16)}, ${parseInt(value.slice(4, 6), 16)}, ${alpha})`;
+function isJsonResponse(response) {
+  if (!response) return false;
+
+  const contentType = response.headers.get('content-type') || '';
+  return contentType.includes('application/json');
 }
 
-const rootElement = document.getElementById('root');
-const appRoot = rootElement.reactRoot ?? createRoot(rootElement);
-rootElement.reactRoot = appRoot;
-appRoot.render(<App />);
+createRoot(document.getElementById('root')).render(<App />);

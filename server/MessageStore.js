@@ -171,6 +171,15 @@ export class MessageStore {
         )`,
       )
       .run();
+    this.database
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS task_state (
+          id TEXT PRIMARY KEY,
+          state_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )`,
+      )
+      .run();
     this.seedUserProfiles();
     this.database
       .prepare(
@@ -326,6 +335,17 @@ export class MessageStore {
        VALUES (@id, @question, @resultsJson, @createdAt)`,
     );
     this.deleteProfileComparisons = this.database.prepare('DELETE FROM profile_comparisons');
+    this.selectTaskState = this.database.prepare(
+      'SELECT state_json FROM task_state WHERE id = @id',
+    );
+    this.upsertTaskState = this.database.prepare(
+      `INSERT INTO task_state (id, state_json, updated_at)
+       VALUES (@id, @stateJson, @updatedAt)
+       ON CONFLICT(id) DO UPDATE SET
+         state_json = excluded.state_json,
+         updated_at = excluded.updated_at`,
+    );
+    this.deleteTaskState = this.database.prepare('DELETE FROM task_state');
     this.selectBranchingState = this.database.prepare(
       `SELECT active_branch_id, checkpoint_at, checkpoint_message_count,
               checkpoint_source_branch_id, branch_labels_json, updated_at
@@ -359,6 +379,31 @@ export class MessageStore {
       metadata: this.parseMetadata(message.metadata_json),
       createdAt: message.created_at,
     }));
+  }
+
+  getTaskState() {
+    const row = this.selectTaskState.get({ id: 'default' });
+
+    if (!row) return null;
+
+    try {
+      return JSON.parse(row.state_json);
+    } catch {
+      return null;
+    }
+  }
+
+  saveTaskState(state) {
+    this.upsertTaskState.run({
+      id: 'default',
+      stateJson: JSON.stringify(state),
+      updatedAt: state.updatedAt || new Date().toISOString(),
+    });
+    return state;
+  }
+
+  clearTaskState() {
+    this.deleteTaskState.run();
   }
 
   addShortTermMessage({ role, text, metadata = null }) {

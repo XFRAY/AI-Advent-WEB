@@ -29,7 +29,7 @@ npm install
 
 ```bash
 OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_MODEL=gpt-4o
+OPENAI_MODEL=gpt-5.6-terra
 OPENAI_TOKEN_COUNTING=estimate
 PORT=3001
 ```
