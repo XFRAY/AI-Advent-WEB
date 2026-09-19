@@ -219,12 +219,6 @@ test('API clears all Day 11 memory layers', async () => {
         message: 'Save something',
       }),
     });
-    await fetch(`${baseUrl}/api/task-state/event`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event: 'advance' }),
-    });
-
     const clearResponse = await fetch(`${baseUrl}/api/memory`, {
       method: 'DELETE',
     });
@@ -235,8 +229,6 @@ test('API clears all Day 11 memory layers', async () => {
     assert.equal(cleared.workingMemory.goal, '');
     assert.equal(cleared.longTermMemory.preferences, '');
     assert.equal(cleared.activeProfile.id, 'concise-business');
-    assert.equal(cleared.taskState.stage, 'planning');
-    assert.equal(cleared.taskState.isPaused, false);
 
     await sleep(20);
 
@@ -247,97 +239,92 @@ test('API clears all Day 11 memory layers', async () => {
     assert.equal(memory.longTermMemory.preferences, '');
     assert.equal(memory.activeProfile.id, 'concise-business');
 
-    const taskStateResponse = await fetch(`${baseUrl}/api/task-state`);
-    const taskStateData = await taskStateResponse.json();
-    assert.equal(taskStateData.taskState.stage, 'planning');
   } finally {
     await close();
   }
 });
 
-test('API persists task state events and blocks advance while paused', async () => {
-  const { baseUrl, close } = await startTestServer();
-
-  try {
-    const initialResponse = await fetch(`${baseUrl}/api/task-state`);
-    const initial = await initialResponse.json();
-    assert.equal(initial.taskState.stage, 'planning');
-    assert.equal(initial.taskState.currentStep, 'Сформулировать задачу');
-
-    await fetch(`${baseUrl}/api/task-state/event`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event: 'advance' }),
-    });
-    await fetch(`${baseUrl}/api/task-state/event`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event: 'pause' }),
-    });
-    const blockedResponse = await fetch(`${baseUrl}/api/task-state/event`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event: 'advance' }),
-    });
-    const blocked = await blockedResponse.json();
-    assert.equal(blocked.taskState.stage, 'execution');
-    assert.equal(blocked.taskState.isPaused, true);
-
-    const persistedResponse = await fetch(`${baseUrl}/api/task-state`);
-    const persisted = await persistedResponse.json();
-    assert.deepEqual(persisted.taskState, blocked.taskState);
-  } finally {
-    await close();
-  }
-});
-
-test('chat sends task state to the model and stores it with the answer', async () => {
+test('invariants API persists rules and chat sends them before memory', async () => {
   const { baseUrl, calls, close } = await startTestServer();
 
   try {
-    await fetch(`${baseUrl}/api/task-state/event`, {
+    const saveResponse = await fetch(`${baseUrl}/api/invariants`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        invariants: {
+          architecture: 'Использовать модульную архитектуру',
+          technicalDecisions: 'REST API',
+        },
+      }),
+    });
+    const saved = await saveResponse.json();
+    assert.equal(saveResponse.status, 200);
+    assert.equal(saved.stats.activeCount, 2);
+
+    const chatResponse = await fetch(`${baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event: 'advance' }),
+      body: JSON.stringify({ message: 'Продолжай реализацию' }),
     });
-    const response = await fetch(`${baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: 'Продолжай работу' }),
-    });
-    const data = await response.json();
+    assert.equal(chatResponse.status, 200);
+
     const answerCall = calls.find((call) => call.kind === 'answer');
-    const stateInput = answerCall.input.find((item) => item.content?.startsWith('Formal task state'));
+    const invariantIndex = answerCall.input.findIndex((item) =>
+      item.content?.startsWith('Mandatory invariants'),
+    );
+    const profileIndex = answerCall.input.findIndex((item) =>
+      item.content?.startsWith('Active user profile'),
+    );
 
-    assert.equal(response.status, 200);
-    assert.match(stateInput.content, /Stage: execution/);
-    assert.equal(data.taskState.stage, 'execution');
-    assert.equal(data.agentMessage.metadata.taskState.stage, 'execution');
+    assert.equal(invariantIndex, 1);
+    assert.ok(invariantIndex < profileIndex);
   } finally {
     await close();
   }
 });
 
-test('chat is blocked while the task is paused', async () => {
+test('conflicting chat request returns 409 without calling the model', async () => {
   const { baseUrl, calls, close } = await startTestServer();
 
   try {
-    await fetch(`${baseUrl}/api/task-state/event`, {
-      method: 'POST',
+    await fetch(`${baseUrl}/api/invariants`, {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event: 'pause' }),
+      body: JSON.stringify({ stackConstraints: 'Не использовать Python' }),
     });
     const response = await fetch(`${baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: 'Продолжай работу' }),
+      body: JSON.stringify({ message: 'Используй Python для нового сервиса' }),
     });
     const data = await response.json();
 
     assert.equal(response.status, 409);
-    assert.equal(data.taskState.isPaused, true);
-    assert.match(data.error, /паузе/);
+    assert.equal(data.code, 'INVARIANT_CONFLICT');
+    assert.equal(data.conflict.field, 'stackConstraints');
+    assert.match(data.error, /Не использовать Python/);
     assert.equal(calls.filter((call) => call.kind === 'answer').length, 0);
+  } finally {
+    await close();
+  }
+});
+
+test('clearing memory preserves invariants', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    await fetch(`${baseUrl}/api/invariants`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ businessRules: 'Не публиковать черновики' }),
+    });
+    await fetch(`${baseUrl}/api/memory`, { method: 'DELETE' });
+
+    const response = await fetch(`${baseUrl}/api/invariants`);
+    const data = await response.json();
+    assert.equal(data.invariants.businessRules, 'Не публиковать черновики');
+    assert.equal(data.stats.activeCount, 1);
   } finally {
     await close();
   }

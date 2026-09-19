@@ -188,3 +188,39 @@ test('MessageStore persists and clears profile comparison history', () => {
   assert.deepEqual(store.getProfileComparisons(), []);
   assert.equal(store.getProfiles().length, 2);
 });
+
+test('MessageStore seeds Android rules, normalizes, persists, clears, and isolates invariants', () => {
+  const databasePath = path.join(
+    os.tmpdir(),
+    `ai-advent-message-store-invariants-${Date.now()}-${Math.random()}.sqlite`,
+  );
+  const store = new MessageStore({ databasePath });
+
+  assert.match(store.getInvariants().architecture, /MVI/);
+  assert.match(store.getInvariants().architecture, /Clean Architecture/);
+  assert.match(store.getInvariants().stackConstraints, /Не использовать RxJava/);
+  assert.match(store.getInvariants().businessRules, /unit- и UI-тесты/);
+
+  const saved = store.saveInvariants({
+    architecture: ['Монолит', 'REST API'],
+    stackConstraints: 'Не использовать Python',
+    ignored: 'not persisted',
+  });
+
+  assert.equal(saved.architecture, 'Монолит; REST API');
+  assert.equal(saved.stackConstraints, 'Не использовать Python');
+  assert.equal(saved.technicalDecisions, '');
+  assert.equal('ignored' in saved, false);
+
+  store.saveWorkingMemory({ goal: 'Temporary task' });
+  store.clearMemory();
+  assert.deepEqual(store.getInvariants(), saved);
+
+  assert.deepEqual(store.clearInvariants(), {
+    architecture: '',
+    technicalDecisions: '',
+    stackConstraints: '',
+    businessRules: '',
+  });
+  assert.equal(store.getInvariants().stackConstraints, '');
+});

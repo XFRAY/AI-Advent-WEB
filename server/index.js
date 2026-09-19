@@ -13,15 +13,12 @@ import {
   LlmAgent,
 } from './LlmAgent.js';
 import { MessageStore } from './MessageStore.js';
-import { MODEL_TOKEN_CONFIG } from './TokenUsageAnalyzer.js';
 import {
-  TaskStateError,
-  buildTaskStateInput,
-  createInitialTaskState,
-  normalizeTaskState,
-  recordTaskArtifact,
-  transitionTaskState,
-} from './TaskStateMachine.js';
+  buildInvariantsInput,
+  findInvariantConflict,
+  getInvariantStats,
+} from './Invariants.js';
+import { MODEL_TOKEN_CONFIG } from './TokenUsageAnalyzer.js';
 
 const port = Number(process.env.PORT || 3001);
 
@@ -68,23 +65,19 @@ export function createApp({
     response.json({ ok: true });
   });
 
-  app.get('/api/task-state', (_request, response) => {
-    response.json({ taskState: getCurrentTaskState(messageStore) });
+  app.get('/api/invariants', (_request, response) => {
+    const invariants = messageStore.getInvariants();
+    response.json({ invariants, stats: getInvariantStats(invariants) });
   });
 
-  app.post('/api/task-state/event', (request, response) => {
-    try {
-      const current = getCurrentTaskState(messageStore);
-      const taskState = transitionTaskState(current, request.body?.event, request.body?.payload);
-      messageStore.saveTaskState(taskState);
-      response.json({ taskState });
-    } catch (error) {
-      if (error instanceof TaskStateError) {
-        response.status(400).json({ error: error.message });
-        return;
-      }
-      sendError(response, error, 'Unable to update task state');
-    }
+  app.put('/api/invariants', (request, response) => {
+    const invariants = messageStore.saveInvariants(request.body?.invariants ?? request.body);
+    response.json({ invariants, stats: getInvariantStats(invariants) });
+  });
+
+  app.delete('/api/invariants', (_request, response) => {
+    const invariants = messageStore.clearInvariants();
+    response.json({ invariants, stats: getInvariantStats(invariants) });
   });
 
   app.get('/api/memory', (_request, response) => {
@@ -230,27 +223,29 @@ export function createApp({
 
   app.delete('/api/memory', (_request, response) => {
     messageStore.clearMemory();
-    messageStore.clearTaskState();
-    const taskState = getCurrentTaskState(messageStore);
 
     response.json({
       shortTermMessages: [],
       workingMemory: messageStore.getWorkingMemory(),
       longTermMemory: messageStore.getLongTermMemory(),
       activeProfile: messageStore.getActiveProfile(),
-      taskState,
     });
   });
 
   app.post('/api/chat', async (request, response) => {
     try {
       const message = agent.normalizeInput(request.body?.message);
-      const taskState = getCurrentTaskState(messageStore);
+      const invariants = messageStore.getInvariants();
 
-      if (taskState.isPaused) {
+      const conflict = findInvariantConflict(message, invariants);
+
+      if (conflict) {
         response.status(409).json({
-          error: 'Задача находится на паузе. Возобновите её перед отправкой сообщения.',
-          taskState,
+          error: `Не могу предложить это решение, потому что оно нарушает инвариант: ${conflict.text}`,
+          code: 'INVARIANT_CONFLICT',
+          conflict,
+          invariants,
+          stats: getInvariantStats(invariants),
         });
         return;
       }
@@ -258,19 +253,14 @@ export function createApp({
       const settings = memory.normalizeSettings(request.body?.settings);
       const before = buildCurrentMemoryContext({ messageStore, memory, settings });
       const conversationHistoryInput = [
-        buildTaskStateInput(taskState),
+        buildInvariantsInput(invariants),
         ...before.prepared.conversationHistoryInput,
-      ];
+      ].filter(Boolean);
       const result = await agent.ask({
         message,
         history: before.shortTermMessages,
         conversationHistoryInput,
       });
-      const updatedTaskState = recordTaskArtifact(taskState, {
-        userMessage: message,
-        agentAnswer: result.answer,
-      });
-      messageStore.saveTaskState(updatedTaskState);
       const messages = saveMemoryExchange({
         messageStore,
         message,
@@ -282,7 +272,6 @@ export function createApp({
             longTermMemory: [],
           },
           memoryUpdateStatus: 'pending',
-          taskState: updatedTaskState,
         },
       });
       updateMemoryInBackground({
@@ -301,7 +290,6 @@ export function createApp({
         workingMemory: before.workingMemory,
         longTermMemory: before.longTermMemory,
         activeProfile: before.activeProfile,
-        taskState: updatedTaskState,
         memoryChanges: {
           workingMemory: [],
           longTermMemory: [],
@@ -315,15 +303,6 @@ export function createApp({
   });
 
   return app;
-}
-
-function getCurrentTaskState(messageStore) {
-  const stored = messageStore.getTaskState();
-  const taskState = stored ? normalizeTaskState(stored) : createInitialTaskState();
-
-  if (!stored) messageStore.saveTaskState(taskState);
-
-  return taskState;
 }
 
 function buildCurrentMemoryContext({
@@ -471,7 +450,7 @@ if (isMainModule) {
   const app = createApp();
   const server = app.listen(port, () => {
     console.log(`Agent API is running on http://localhost:${port}`);
-    console.log('Personalization: active profile, short-term, working, long-term memory');
+    console.log('Day 14: invariants, profile, and layered memory');
   });
 
   server.on('error', (error) => {

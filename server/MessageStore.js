@@ -30,6 +30,48 @@ const DEFAULT_LONG_TERM_MEMORY = {
   decisions: '',
   knowledge: '',
 };
+const DEFAULT_INVARIANTS = {
+  architecture: '',
+  technicalDecisions: '',
+  stackConstraints: '',
+  businessRules: '',
+};
+const ANDROID_INVARIANTS = {
+  architecture: [
+    'Использовать MVI как единственный паттерн управления состоянием presentation-слоя',
+    'Не использовать MVVM',
+    'Не использовать MVP',
+    'Соблюдать принципы SOLID во всех слоях приложения',
+    'Соблюдать Clean Architecture с разделением на presentation, domain и data',
+    'Направлять зависимости к domain-слою. Domain не должен зависеть от Android framework и деталей инфраструктуры',
+  ].join('\n'),
+  technicalDecisions: [
+    'Разрабатывать нативное Android-приложение',
+    'Использовать однонаправленный поток данных: UI отправляет intents, MVI reducer формирует новое immutable state',
+    'Выносить бизнес-логику из UI и Android-компонентов в use cases domain-слоя',
+    'Взаимодействовать между слоями через явно определённые интерфейсы и dependency inversion',
+    'Предпочитать неизменяемые модели состояния и явные sealed-типы для intents, state и одноразовых effects',
+  ].join('\n'),
+  stackConstraints: [
+    'Использовать Kotlin как основной и единственный язык приложения',
+    'Использовать Kotlin Coroutines и Flow для асинхронности и реактивных потоков',
+    'Использовать Jetpack Compose для всего пользовательского интерфейса',
+    'Использовать JUnit 5 для unit-тестов',
+    'Использовать Mockito для тестовых doubles и проверки взаимодействий',
+    'Использовать Hilt для dependency injection',
+    'Не использовать RxJava',
+    'Не использовать Java',
+    'Не использовать Android Views',
+    'Не использовать XML layouts',
+  ].join('\n'),
+  businessRules: [
+    'Каждая бизнес-функция и каждый use case должны быть покрыты unit-тестами',
+    'Каждый критический пользовательский сценарий и UI flow должны быть покрыты UI-тестами',
+    'Изменение не считается завершённым, пока соответствующие unit- и UI-тесты не добавлены и не проходят',
+    'Тесты должны проверять успешные сценарии, ошибки и граничные случаи',
+    'Нельзя отключать, пропускать или удалять тесты ради успешной сборки',
+  ].join('\n'),
+};
 const DEFAULT_USER_PROFILES = [
   {
     id: 'concise-business',
@@ -173,9 +215,9 @@ export class MessageStore {
       .run();
     this.database
       .prepare(
-        `CREATE TABLE IF NOT EXISTS task_state (
+        `CREATE TABLE IF NOT EXISTS invariants (
           id TEXT PRIMARY KEY,
-          state_json TEXT NOT NULL,
+          invariants_json TEXT NOT NULL,
           updated_at TEXT NOT NULL
         )`,
       )
@@ -335,17 +377,17 @@ export class MessageStore {
        VALUES (@id, @question, @resultsJson, @createdAt)`,
     );
     this.deleteProfileComparisons = this.database.prepare('DELETE FROM profile_comparisons');
-    this.selectTaskState = this.database.prepare(
-      'SELECT state_json FROM task_state WHERE id = @id',
+    this.selectInvariants = this.database.prepare(
+      'SELECT invariants_json, updated_at FROM invariants WHERE id = @id',
     );
-    this.upsertTaskState = this.database.prepare(
-      `INSERT INTO task_state (id, state_json, updated_at)
-       VALUES (@id, @stateJson, @updatedAt)
+    this.upsertInvariants = this.database.prepare(
+      `INSERT INTO invariants (id, invariants_json, updated_at)
+       VALUES (@id, @invariantsJson, @updatedAt)
        ON CONFLICT(id) DO UPDATE SET
-         state_json = excluded.state_json,
+         invariants_json = excluded.invariants_json,
          updated_at = excluded.updated_at`,
     );
-    this.deleteTaskState = this.database.prepare('DELETE FROM task_state');
+    this.deleteInvariants = this.database.prepare('DELETE FROM invariants');
     this.selectBranchingState = this.database.prepare(
       `SELECT active_branch_id, checkpoint_at, checkpoint_message_count,
               checkpoint_source_branch_id, branch_labels_json, updated_at
@@ -369,6 +411,7 @@ export class MessageStore {
           branch_labels_json = excluded.branch_labels_json,
           updated_at = excluded.updated_at`,
     );
+    this.seedInvariants();
   }
 
   getShortTermMessages() {
@@ -381,29 +424,29 @@ export class MessageStore {
     }));
   }
 
-  getTaskState() {
-    const row = this.selectTaskState.get({ id: 'default' });
+  getInvariants() {
+    const row = this.selectInvariants.get({ id: 'default' });
 
-    if (!row) return null;
-
-    try {
-      return JSON.parse(row.state_json);
-    } catch {
-      return null;
-    }
+    return row
+      ? normalizeMemory(row.invariants_json, DEFAULT_INVARIANTS)
+      : { ...DEFAULT_INVARIANTS };
   }
 
-  saveTaskState(state) {
-    this.upsertTaskState.run({
+  saveInvariants(invariants) {
+    const normalized = normalizeMemory(invariants, DEFAULT_INVARIANTS);
+
+    this.upsertInvariants.run({
       id: 'default',
-      stateJson: JSON.stringify(state),
-      updatedAt: state.updatedAt || new Date().toISOString(),
+      invariantsJson: JSON.stringify(normalized),
+      updatedAt: new Date().toISOString(),
     });
-    return state;
+
+    return normalized;
   }
 
-  clearTaskState() {
-    this.deleteTaskState.run();
+  clearInvariants() {
+    this.deleteInvariants.run();
+    return { ...DEFAULT_INVARIANTS };
   }
 
   addShortTermMessage({ role, text, metadata = null }) {
@@ -876,6 +919,19 @@ export class MessageStore {
     transaction();
   }
 
+  seedInvariants() {
+    this.database
+      .prepare(
+        `INSERT OR IGNORE INTO invariants (id, invariants_json, updated_at)
+         VALUES (@id, @invariantsJson, @updatedAt)`,
+      )
+      .run({
+        id: 'default',
+        invariantsJson: JSON.stringify(ANDROID_INVARIANTS),
+        updatedAt: new Date().toISOString(),
+      });
+  }
+
   assertMode(mode) {
     if (!ALLOWED_MODES.has(mode)) {
       throw new Error(`Unsupported message mode: ${mode}`);
@@ -952,7 +1008,12 @@ function parseMemoryJson(memoryJson) {
   }
 }
 
-export { DEFAULT_WORKING_MEMORY, DEFAULT_LONG_TERM_MEMORY };
+export {
+  DEFAULT_WORKING_MEMORY,
+  DEFAULT_LONG_TERM_MEMORY,
+  DEFAULT_INVARIANTS,
+  ANDROID_INVARIANTS,
+};
 
 function mapProfileRow(row) {
   return {
