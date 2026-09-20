@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
+import { createInitialTaskLifecycle, normalizeTaskLifecycle } from './TaskLifecycle.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DATABASE_PATH = path.join(__dirname, 'data', 'messages.sqlite');
@@ -35,42 +36,6 @@ const DEFAULT_INVARIANTS = {
   technicalDecisions: '',
   stackConstraints: '',
   businessRules: '',
-};
-const ANDROID_INVARIANTS = {
-  architecture: [
-    'Использовать MVI как единственный паттерн управления состоянием presentation-слоя',
-    'Не использовать MVVM',
-    'Не использовать MVP',
-    'Соблюдать принципы SOLID во всех слоях приложения',
-    'Соблюдать Clean Architecture с разделением на presentation, domain и data',
-    'Направлять зависимости к domain-слою. Domain не должен зависеть от Android framework и деталей инфраструктуры',
-  ].join('\n'),
-  technicalDecisions: [
-    'Разрабатывать нативное Android-приложение',
-    'Использовать однонаправленный поток данных: UI отправляет intents, MVI reducer формирует новое immutable state',
-    'Выносить бизнес-логику из UI и Android-компонентов в use cases domain-слоя',
-    'Взаимодействовать между слоями через явно определённые интерфейсы и dependency inversion',
-    'Предпочитать неизменяемые модели состояния и явные sealed-типы для intents, state и одноразовых effects',
-  ].join('\n'),
-  stackConstraints: [
-    'Использовать Kotlin как основной и единственный язык приложения',
-    'Использовать Kotlin Coroutines и Flow для асинхронности и реактивных потоков',
-    'Использовать Jetpack Compose для всего пользовательского интерфейса',
-    'Использовать JUnit 5 для unit-тестов',
-    'Использовать Mockito для тестовых doubles и проверки взаимодействий',
-    'Использовать Hilt для dependency injection',
-    'Не использовать RxJava',
-    'Не использовать Java',
-    'Не использовать Android Views',
-    'Не использовать XML layouts',
-  ].join('\n'),
-  businessRules: [
-    'Каждая бизнес-функция и каждый use case должны быть покрыты unit-тестами',
-    'Каждый критический пользовательский сценарий и UI flow должны быть покрыты UI-тестами',
-    'Изменение не считается завершённым, пока соответствующие unit- и UI-тесты не добавлены и не проходят',
-    'Тесты должны проверять успешные сценарии, ошибки и граничные случаи',
-    'Нельзя отключать, пропускать или удалять тесты ради успешной сборки',
-  ].join('\n'),
 };
 const DEFAULT_USER_PROFILES = [
   {
@@ -218,6 +183,15 @@ export class MessageStore {
         `CREATE TABLE IF NOT EXISTS invariants (
           id TEXT PRIMARY KEY,
           invariants_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )`,
+      )
+      .run();
+    this.database
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS task_lifecycle (
+          id TEXT PRIMARY KEY,
+          lifecycle_json TEXT NOT NULL,
           updated_at TEXT NOT NULL
         )`,
       )
@@ -388,6 +362,17 @@ export class MessageStore {
          updated_at = excluded.updated_at`,
     );
     this.deleteInvariants = this.database.prepare('DELETE FROM invariants');
+    this.selectTaskLifecycle = this.database.prepare(
+      'SELECT lifecycle_json FROM task_lifecycle WHERE id = @id',
+    );
+    this.upsertTaskLifecycle = this.database.prepare(
+      `INSERT INTO task_lifecycle (id, lifecycle_json, updated_at)
+       VALUES (@id, @lifecycleJson, @updatedAt)
+       ON CONFLICT(id) DO UPDATE SET
+         lifecycle_json = excluded.lifecycle_json,
+         updated_at = excluded.updated_at`,
+    );
+    this.deleteTaskLifecycle = this.database.prepare('DELETE FROM task_lifecycle');
     this.selectBranchingState = this.database.prepare(
       `SELECT active_branch_id, checkpoint_at, checkpoint_message_count,
               checkpoint_source_branch_id, branch_labels_json, updated_at
@@ -411,7 +396,6 @@ export class MessageStore {
           branch_labels_json = excluded.branch_labels_json,
           updated_at = excluded.updated_at`,
     );
-    this.seedInvariants();
   }
 
   getShortTermMessages() {
@@ -447,6 +431,26 @@ export class MessageStore {
   clearInvariants() {
     this.deleteInvariants.run();
     return { ...DEFAULT_INVARIANTS };
+  }
+
+  getTaskLifecycle() {
+    const row = this.selectTaskLifecycle.get({ id: 'default' });
+    return row ? normalizeTaskLifecycle(this.parseMetadata(row.lifecycle_json)) : createInitialTaskLifecycle();
+  }
+
+  saveTaskLifecycle(lifecycle) {
+    const normalized = normalizeTaskLifecycle(lifecycle);
+    this.upsertTaskLifecycle.run({
+      id: 'default',
+      lifecycleJson: JSON.stringify(normalized),
+      updatedAt: normalized.updatedAt,
+    });
+    return normalized;
+  }
+
+  clearTaskLifecycle() {
+    this.deleteTaskLifecycle.run();
+    return createInitialTaskLifecycle();
   }
 
   addShortTermMessage({ role, text, metadata = null }) {
@@ -610,6 +614,7 @@ export class MessageStore {
     this.deleteShortTermMessages.run();
     this.deleteWorkingMemory.run();
     this.deleteLongTermMemory.run();
+    this.clearTaskLifecycle();
   }
 
   getWorkingMemory() {
@@ -919,19 +924,6 @@ export class MessageStore {
     transaction();
   }
 
-  seedInvariants() {
-    this.database
-      .prepare(
-        `INSERT OR IGNORE INTO invariants (id, invariants_json, updated_at)
-         VALUES (@id, @invariantsJson, @updatedAt)`,
-      )
-      .run({
-        id: 'default',
-        invariantsJson: JSON.stringify(ANDROID_INVARIANTS),
-        updatedAt: new Date().toISOString(),
-      });
-  }
-
   assertMode(mode) {
     if (!ALLOWED_MODES.has(mode)) {
       throw new Error(`Unsupported message mode: ${mode}`);
@@ -1012,7 +1004,6 @@ export {
   DEFAULT_WORKING_MEMORY,
   DEFAULT_LONG_TERM_MEMORY,
   DEFAULT_INVARIANTS,
-  ANDROID_INVARIANTS,
 };
 
 function mapProfileRow(row) {

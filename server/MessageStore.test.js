@@ -189,17 +189,19 @@ test('MessageStore persists and clears profile comparison history', () => {
   assert.equal(store.getProfiles().length, 2);
 });
 
-test('MessageStore seeds Android rules, normalizes, persists, clears, and isolates invariants', () => {
+test('MessageStore starts without invariants, normalizes, persists, clears, and isolates them', () => {
   const databasePath = path.join(
     os.tmpdir(),
     `ai-advent-message-store-invariants-${Date.now()}-${Math.random()}.sqlite`,
   );
   const store = new MessageStore({ databasePath });
 
-  assert.match(store.getInvariants().architecture, /MVI/);
-  assert.match(store.getInvariants().architecture, /Clean Architecture/);
-  assert.match(store.getInvariants().stackConstraints, /Не использовать RxJava/);
-  assert.match(store.getInvariants().businessRules, /unit- и UI-тесты/);
+  assert.deepEqual(store.getInvariants(), {
+    architecture: '',
+    technicalDecisions: '',
+    stackConstraints: '',
+    businessRules: '',
+  });
 
   const saved = store.saveInvariants({
     architecture: ['Монолит', 'REST API'],
@@ -223,4 +225,27 @@ test('MessageStore seeds Android rules, normalizes, persists, clears, and isolat
     businessRules: '',
   });
   assert.equal(store.getInvariants().stackConstraints, '');
+  assert.deepEqual(new MessageStore({ databasePath }).getInvariants(), store.getInvariants());
+});
+
+test('MessageStore restores the lifecycle stage after a process-level break', () => {
+  const databasePath = path.join(
+    os.tmpdir(),
+    `ai-advent-message-store-lifecycle-${Date.now()}-${Math.random()}.sqlite`,
+  );
+  const firstStore = new MessageStore({ databasePath });
+  const initial = firstStore.getTaskLifecycle();
+  firstStore.saveTaskLifecycle({
+    ...initial,
+    stage: 'implementation',
+    artifacts: {
+      ...initial.artifacts,
+      plan: { content: 'Persisted plan', recordedAt: new Date().toISOString() },
+    },
+  });
+
+  const restoredStore = new MessageStore({ databasePath });
+  const restored = restoredStore.getTaskLifecycle();
+  assert.equal(restored.stage, 'implementation');
+  assert.equal(restored.artifacts.plan.content, 'Persisted plan');
 });

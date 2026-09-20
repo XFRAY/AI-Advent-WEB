@@ -19,6 +19,13 @@ import {
   getInvariantStats,
 } from './Invariants.js';
 import { MODEL_TOKEN_CONFIG } from './TokenUsageAnalyzer.js';
+import {
+  buildTaskLifecycleInput,
+  detectLifecycleIntent,
+  evaluateLifecycleIntent,
+  recordLifecycleArtifact,
+  serializeTaskLifecycle,
+} from './TaskLifecycle.js';
 
 const port = Number(process.env.PORT || 3001);
 
@@ -68,6 +75,10 @@ export function createApp({
   app.get('/api/invariants', (_request, response) => {
     const invariants = messageStore.getInvariants();
     response.json({ invariants, stats: getInvariantStats(invariants) });
+  });
+
+  app.get('/api/task-lifecycle', (_request, response) => {
+    response.json({ taskLifecycle: serializeTaskLifecycle(messageStore.getTaskLifecycle()) });
   });
 
   app.put('/api/invariants', (request, response) => {
@@ -229,6 +240,7 @@ export function createApp({
       workingMemory: messageStore.getWorkingMemory(),
       longTermMemory: messageStore.getLongTermMemory(),
       activeProfile: messageStore.getActiveProfile(),
+      taskLifecycle: serializeTaskLifecycle(messageStore.getTaskLifecycle()),
     });
   });
 
@@ -250,10 +262,42 @@ export function createApp({
         return;
       }
 
+      const intent = detectLifecycleIntent(message);
+      const lifecycleResult = evaluateLifecycleIntent(messageStore.getTaskLifecycle(), intent);
+
+      if (!lifecycleResult.ok) {
+        response.status(409).json({
+          error: lifecycleResult.reason,
+          code: 'LIFECYCLE_TRANSITION_BLOCKED',
+          intent,
+          taskLifecycle: serializeTaskLifecycle(lifecycleResult.state, lifecycleResult.reason),
+        });
+        return;
+      }
+
+      if (!lifecycleResult.invokeModel) {
+        const taskLifecycle = messageStore.saveTaskLifecycle(lifecycleResult.state);
+        const messages = saveDeterministicExchange({
+          messageStore,
+          message,
+          answer: lifecycleResult.response,
+          intent,
+        });
+        response.json({
+          answer: lifecycleResult.response,
+          userMessage: messages.userMessage,
+          agentMessage: messages.agentMessage,
+          shortTermMessages: messageStore.getShortTermMessages(),
+          taskLifecycle: serializeTaskLifecycle(taskLifecycle),
+        });
+        return;
+      }
+
       const settings = memory.normalizeSettings(request.body?.settings);
       const before = buildCurrentMemoryContext({ messageStore, memory, settings });
       const conversationHistoryInput = [
         buildInvariantsInput(invariants),
+        buildTaskLifecycleInput(lifecycleResult.state),
         ...before.prepared.conversationHistoryInput,
       ].filter(Boolean);
       const result = await agent.ask({
@@ -274,6 +318,10 @@ export function createApp({
           memoryUpdateStatus: 'pending',
         },
       });
+      const taskLifecycle = messageStore.saveTaskLifecycle(recordLifecycleArtifact(
+        lifecycleResult.state,
+        { intent, content: result.answer },
+      ));
       updateMemoryInBackground({
         memory,
         messageStore,
@@ -296,6 +344,7 @@ export function createApp({
         },
         memoryUpdateStatus: 'pending',
         comparison: buildMemoryTokenComparison(result.usage?.tokenReport),
+        taskLifecycle: serializeTaskLifecycle(taskLifecycle),
       });
     } catch (error) {
       sendError(response, error, 'Unknown server error');
@@ -303,6 +352,16 @@ export function createApp({
   });
 
   return app;
+}
+
+function saveDeterministicExchange({ messageStore, message, answer, intent }) {
+  const userMessage = messageStore.addShortTermMessage({ role: 'user', text: message });
+  const agentMessage = messageStore.addShortTermMessage({
+    role: 'agent',
+    text: answer,
+    metadata: { lifecycleIntent: intent, deterministic: true },
+  });
+  return { userMessage, agentMessage };
 }
 
 function buildCurrentMemoryContext({
@@ -450,7 +509,7 @@ if (isMainModule) {
   const app = createApp();
   const server = app.listen(port, () => {
     console.log(`Agent API is running on http://localhost:${port}`);
-    console.log('Day 14: invariants, profile, and layered memory');
+    console.log('Day 15: controlled lifecycle, invariants, profile, and layered memory');
   });
 
   server.on('error', (error) => {
