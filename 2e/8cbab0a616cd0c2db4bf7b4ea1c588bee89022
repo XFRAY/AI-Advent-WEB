@@ -1,0 +1,37 @@
+package.json
+  s_7f9dac7e7edead::t_794dc1ac136a57 19,30-31
+  s_7f9dac7e7edead::t_bb575373ec499b 13-14
+README.md
+  s_7f9dac7e7edead::t_bb575373ec499b 1-34
+server/mcp/server.js
+  s_7f9dac7e7edead::t_bb575373ec499b 1-18
+server/mcp/client.js
+  s_7f9dac7e7edead::t_bb575373ec499b 1-46
+server/mcp/client.test.js
+  s_7f9dac7e7edead::t_bb575373ec499b 1-47
+package-lock.json
+  s_7f9dac7e7edead::t_175e7fc3cbf503 13,24-25,868-879,925-964,1666-1698,2110-2126,2152-2165,2419-2439,2492-2532,2751-2759,2844-2852,2898-2912,2937-2948,3268-3276,3320-3328,3558-3566,3759-3779,4252-4266,4348-4365
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2e8cbab0a616cd0c2db4bf7b4ea1c588bee89022",
+  "prompts": {},
+  "sessions": {
+    "s_7f9dac7e7edead": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cf28-007b-7aa1-b2cd-ca1cc3f633eb",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Anton Taklionak <anton.taklionak@viber.com>",
+      "token_usage": {
+        "input_tokens": 65278,
+        "output_tokens": 8717,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 2185088
+      },
+      "billing_source": "subscription"
+    }
+  }
+}
