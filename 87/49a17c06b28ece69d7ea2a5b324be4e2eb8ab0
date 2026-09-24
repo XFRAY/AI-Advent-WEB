@@ -1,0 +1,69 @@
+src/AltegioLogin.jsx
+  s_8a422d9540b657::t_8138a68c0498f9 1-77
+src/main.jsx
+  s_8a422d9540b657::t_bfef55d30c54f7 3,5,7-14,18-21,23-26,28-29,31-34,36-40,42-67,70-76,78
+.env.example
+  s_da1a06c083f69d::t_62df94d4acd84a 4
+README.md
+  s_da1a06c083f69d::t_9084d7cf931dec 1,3-4,8-10,12-13,17-74,78-86,90-91,96-99,101-105,107,109-111
+index.html
+  s_da1a06c083f69d::t_4c5510ddc12125 8,15
+package-lock.json
+  s_da1a06c083f69d::t_8cfa4bb5c170c8 2,8
+package.json
+  s_da1a06c083f69d::t_e20eff4fb6900d 2
+server/AltegioAuth.js
+  s_da1a06c083f69d::t_00b4b3d9216b5c 1-59
+server/AltegioAuth.test.js
+  s_da1a06c083f69d::t_1652385c142781 2-14,16-19,21-29,32-50
+server/LlmAgent.js
+  s_da1a06c083f69d::t_252e1c874ec33e 2,7-15,18,20-21,23-42,44-68,71
+server/LlmAgent.test.js
+  s_da1a06c083f69d::t_6df994972c1bdd 2-19,21-23,25-42,45-63,65-68
+server/auth.test.js
+  s_da1a06c083f69d::t_a9d1cf640c91a4 2-40,42-47,49-59,61-71,74-81,83-101,103-109,111-121,123-131
+server/index.js
+  s_da1a06c083f69d::t_13a2e8d1abe7de 2-3,5-7,9-10,12-19,21-27,29,31-36,38-42,44-51,53-56,59-61,63-84,86-102,104-108,110-119,121,123-135
+server/index.test.js
+  s_da1a06c083f69d::t_e9fad73b05dbd8 2,5-13,15-52
+server/mcp/altegio.js
+  s_da1a06c083f69d::t_8223cda24c6e54 1,3-14,17-20,23-34,36-46,48-50,52-54,56-60,62-77,79-81
+server/mcp/altegio.test.js
+  s_da1a06c083f69d::t_227301a4cf84eb 2-6,8-10,12-25,27-34,36-39,41-44,46-56,59-77
+server/mcp/client.js
+  s_da1a06c083f69d::t_4179275e0715f8 1,5,8-50,52,55,57,60-74,77-80,86-88
+server/mcp/client.test.js
+  s_da1a06c083f69d::t_648e2f836a18a1 1,6-27,29-34,37-43
+server/mcp/server.js
+  s_da1a06c083f69d::t_9f5209da50a17f 1,4,6-21,23-26
+server/testing/auth-mcp-fixture.js
+  s_da1a06c083f69d::t_30801f16273d57 1-8
+server/testing/mcp-fixture.js
+  s_da1a06c083f69d::t_5561c9ddc91b6f 1-6,8-10
+src/styles.css
+  s_da1a06c083f69d::t_ab845b4c74682e 1-3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "8749a17c06b28ece69d7ea2a5b324be4e2eb8ab0",
+  "prompts": {},
+  "sessions": {
+    "s_8a422d9540b657": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c7d8-e7da-7ac3-9f66-f45e500b23b2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Anton Taklionak <anton.taklionak@viber.com>"
+    },
+    "s_da1a06c083f69d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b7bce2ed-7498-4ea8-82fe-732b49695659",
+        "model": "unknown"
+      },
+      "human_author": "Anton Taklionak <anton.taklionak@viber.com>"
+    }
+  }
+}
