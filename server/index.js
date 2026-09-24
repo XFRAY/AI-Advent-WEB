@@ -1,519 +1,136 @@
 import 'dotenv/config';
+import { randomUUID } from 'node:crypto';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import express from 'express';
-import { fileURLToPath } from 'node:url';
-import {
-  MemoryLayers,
-  buildMemoryTokenComparison,
-} from './MemoryLayers.js';
-import {
-  AgentApiError,
-  AgentConfigurationError,
-  AgentContextOverflowError,
-  AgentInputError,
-  LlmAgent,
-} from './LlmAgent.js';
-import { MessageStore } from './MessageStore.js';
-import {
-  buildInvariantsInput,
-  findInvariantConflict,
-  getInvariantStats,
-} from './Invariants.js';
-import { MODEL_TOKEN_CONFIG } from './TokenUsageAnalyzer.js';
-import {
-  buildTaskLifecycleInput,
-  detectLifecycleIntent,
-  evaluateLifecycleIntent,
-  recordLifecycleArtifact,
-  serializeTaskLifecycle,
-} from './TaskLifecycle.js';
+import { AgentInputError, AgentConfigurationError, LlmAgent } from './LlmAgent.js';
+import { McpConnection } from './mcp/client.js';
+import { authorizeAltegio, listAltegioLocations, AltegioAuthError } from './AltegioAuth.js';
 
-const port = Number(process.env.PORT || 3001);
-
-const createDefaultAgent = () =>
-  new LlmAgent({
-    apiKey: process.env.OPENAI_API_KEY,
-    model: process.env.OPENAI_MODEL || 'gpt-5.6-terra',
-    tokenCountingMode: process.env.OPENAI_TOKEN_COUNTING || 'estimate',
-  });
-
-export function createApp({
-  agent = createDefaultAgent(),
-  messageStore = new MessageStore(),
-  memoryLayers = null,
-} = {}) {
+export function createApp({ agent, mcp = new McpConnection(), authFetch = globalThis.fetch, locationsFetch = globalThis.fetch } = {}) {
+  agent ??= new LlmAgent({ apiKey: process.env.OPENAI_API_KEY, model: process.env.OPENAI_MODEL, mcp });
   const app = express();
-  const memory =
-    memoryLayers ||
-    new MemoryLayers({
-      client: agent.client,
-      model: agent.model,
-    });
-
-  app.use((request, response, next) => {
-    const origin = request.headers.origin;
-
-    if (origin && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
-      response.setHeader('Access-Control-Allow-Origin', origin);
-      response.setHeader('Vary', 'Origin');
-      response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-      response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  let messages = [];
+  let busy = false;
+  let authenticated = Boolean(mcp.env?.ALTEGIO_USER_TOKEN);
+  let locations = [];
+  let locationsLoaded = false;
+  let locationsError = null;
+  const authStatus = () => ({ locations, locationsLoaded, locationsError, authenticated, partnerConfigured: Boolean(mcp.env?.ALTEGIO_PARTNER_TOKEN), locationId: mcp.env?.ALTEGIO_LOCATION_ID || null });
+  async function refreshLocations() {
+    try {
+      const next = await listAltegioLocations({ partnerToken: mcp.env.ALTEGIO_PARTNER_TOKEN, userToken: mcp.env.ALTEGIO_USER_TOKEN, fetchImpl: locationsFetch });
+      const current = mcp.env.ALTEGIO_LOCATION_ID;
+      const selected = next.some(item => item.id === current) ? current : next.length === 1 ? next[0].id : null;
+      if (selected !== (current || null)) { await mcp.setLocationId(selected); messages = []; }
+      locations = next;
+      locationsLoaded = true;
+      locationsError = null;
+    } catch (error) {
+      locationsError = error instanceof AltegioAuthError ? error.message : 'Не удалось загрузить филиалы.';
     }
-
-    if (request.method === 'OPTIONS') {
-      response.sendStatus(204);
-      return;
-    }
-
+  }
+  app.use('/api', (req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers['sec-fetch-site'] === 'cross-site') return res.status(403).json({ error: 'Недопустимый источник запроса.' });
+    if (req.method === 'POST' && !req.is('application/json')) return res.status(415).json({ error: 'Ожидается JSON.' });
     next();
   });
-  app.use(express.json());
-
-  app.get('/api/health', (_request, response) => {
-    response.json({ ok: true });
-  });
-
-  app.get('/api/invariants', (_request, response) => {
-    const invariants = messageStore.getInvariants();
-    response.json({ invariants, stats: getInvariantStats(invariants) });
-  });
-
-  app.get('/api/task-lifecycle', (_request, response) => {
-    response.json({ taskLifecycle: serializeTaskLifecycle(messageStore.getTaskLifecycle()) });
-  });
-
-  app.put('/api/invariants', (request, response) => {
-    const invariants = messageStore.saveInvariants(request.body?.invariants ?? request.body);
-    response.json({ invariants, stats: getInvariantStats(invariants) });
-  });
-
-  app.delete('/api/invariants', (_request, response) => {
-    const invariants = messageStore.clearInvariants();
-    response.json({ invariants, stats: getInvariantStats(invariants) });
-  });
-
-  app.get('/api/memory', (_request, response) => {
-    const shortTermMessages = messageStore.getShortTermMessages();
-    const workingMemory = messageStore.getWorkingMemory();
-    const longTermMemory = messageStore.getLongTermMemory();
-    const activeProfile = messageStore.getActiveProfile();
-
-    response.json({
-      shortTermMessages,
-      workingMemory,
-      longTermMemory,
-      activeProfile,
-      memoryStats: buildMemoryStats({
-        shortTermMessages,
-        workingMemory,
-        longTermMemory,
-        activeProfile,
-      }),
-    });
-  });
-
-  app.get('/api/profiles', (_request, response) => {
-    response.json({
-      profiles: messageStore.getProfiles(),
-      activeProfile: messageStore.getActiveProfile(),
-    });
-  });
-
-  app.get('/api/profile-comparisons', (_request, response) => {
-    response.json({ comparisons: messageStore.getProfileComparisons() });
-  });
-
-  app.delete('/api/profile-comparisons', (_request, response) => {
-    messageStore.clearProfileComparisons();
-    messageStore.clearMemory();
-    response.json({ comparisons: [] });
-  });
-
-  app.post('/api/profiles/:id/activate', (request, response) => {
-    const activeProfile = messageStore.setActiveProfile(request.params.id);
-
-    if (!activeProfile) {
-      response.status(404).json({ error: 'Profile not found' });
-      return;
-    }
-
-    response.json({
-      profiles: messageStore.getProfiles(),
-      activeProfile,
-    });
-  });
-
-  app.put('/api/profiles/:id', (request, response) => {
+  app.use(express.json({ limit: '32kb' }));
+  app.get('/api/altegio/auth', (_req, res) => res.json(authStatus()));
+  app.post('/api/altegio/auth', async (req, res) => {
+    if (busy) return res.status(409).json({ error: 'Дождитесь завершения текущего запроса.' });
+    busy = true;
     try {
-      const profile = messageStore.updateUserProfile(request.params.id, request.body);
-
-      if (!profile) {
-        response.status(404).json({ error: 'Profile not found' });
-        return;
-      }
-
-      response.json({
-        profile,
-        activeProfile: messageStore.getActiveProfile(),
-      });
+      const token = await authorizeAltegio({ login: req.body?.login, password: req.body?.password, partnerToken: mcp.env?.ALTEGIO_PARTNER_TOKEN, fetchImpl: authFetch });
+      await mcp.setUserToken(token);
+      await mcp.setLocationId(null);
+      locations = []; locationsLoaded = false; locationsError = null;
+      authenticated = true;
+      await refreshLocations();
+      messages = [];
+      res.json(authStatus());
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Invalid profile';
-      response.status(400).json({ error: message });
+      res.status(error instanceof AltegioAuthError ? error.status : 502).json({ error: error instanceof AltegioAuthError ? error.message : 'Не удалось обновить подключение MCP.' });
+    } finally {
+      if (req.body) delete req.body.password;
+      busy = false;
     }
   });
-
-  app.get('/api/config', (_request, response) => {
-    const modelConfig = MODEL_TOKEN_CONFIG[agent.model] || null;
-
-    response.json({
-      model: agent.model,
-      modelContextWindow: modelConfig?.contextWindow ?? null,
-      memoryDefaults: memory.normalizeSettings(),
-    });
-  });
-
-  app.post('/api/context-preview', async (request, response) => {
+  app.delete('/api/altegio/auth', async (_req, res) => {
+    if (busy) return res.status(409).json({ error: 'Дождитесь завершения текущего запроса.' });
+    busy = true;
     try {
-      const message = agent.normalizePreviewInput(request.body?.message);
-      const settings = memory.normalizeSettings(request.body?.settings);
-      const context = buildCurrentMemoryContext({ messageStore, memory, settings });
-      const tokenReport = await agent.buildTokenReport({
-        message,
-        history: context.shortTermMessages,
-        conversationHistoryInput: context.prepared.conversationHistoryInput,
-      });
-
-      response.json({
-        tokenReport,
-        stats: context.prepared.stats,
-        activeProfile: context.activeProfile,
-        comparison: buildMemoryTokenComparison(tokenReport),
-      });
-    } catch (error) {
-      sendError(response, error, 'Unknown server error');
-    }
+      await mcp.setUserToken(null);
+      await mcp.setLocationId(null);
+      locations = []; locationsLoaded = false; locationsError = null;
+      authenticated = false;
+      messages = [];
+      res.json(authStatus());
+    } catch { res.status(502).json({ error: 'Не удалось закрыть подключение MCP. Повторите выход.' }); }
+    finally { busy = false; }
   });
-
-  app.post('/api/profile-comparison', async (request, response) => {
+  app.post('/api/altegio/locations/refresh', async (_req, res) => {
+    if (!authenticated) return res.status(401).json({ error: 'Сначала войдите в Altegio.' });
+    if (busy) return res.status(409).json({ error: 'Дождитесь завершения текущего запроса.' });
+    busy = true;
+    try { await refreshLocations(); res.json(authStatus()); }
+    finally { busy = false; }
+  });
+  app.post('/api/altegio/location', async (req, res) => {
+    if (!authenticated) return res.status(401).json({ error: 'Сначала войдите в Altegio.' });
+    if (busy) return res.status(409).json({ error: 'Дождитесь завершения текущего запроса.' });
+    const id = req.body?.locationId;
+    if (typeof id !== 'string' || !locations.some(item => item.id === id)) return res.status(400).json({ error: 'Выберите доступный филиал из списка.' });
+    busy = true;
     try {
-      const message = agent.normalizeInput(request.body?.message);
-      const settings = memory.normalizeSettings(request.body?.settings);
-      const profiles = messageStore.getProfiles();
-      const comparisons = messageStore.getProfileComparisons();
-      const results = await Promise.all(
-        profiles.map(async (profile) => {
-          const profileHistory = buildProfileComparisonHistory(comparisons, profile.id);
-          const context = buildCurrentMemoryContext({
-            messageStore,
-            memory,
-            settings,
-            activeProfile: profile,
-            shortTermMessages: profileHistory,
-          });
-          const result = await agent.ask({
-            message,
-            history: context.shortTermMessages,
-            conversationHistoryInput: context.prepared.conversationHistoryInput,
-          });
-
-          return {
-            profile,
-            answer: result.answer,
-            model: result.model,
-            usage: result.usage,
-            contextStats: context.prepared.stats,
-          };
-        }),
-      );
-
-      const comparison = messageStore.addProfileComparison({ question: message, results });
-      response.json({ comparison });
-    } catch (error) {
-      sendError(response, error, 'Unknown server error');
-    }
+      if (id !== mcp.env.ALTEGIO_LOCATION_ID) { await mcp.setLocationId(id); messages = []; }
+      res.json(authStatus());
+    } catch { res.status(502).json({ error: 'Не удалось переключить филиал. Повторите попытку.' }); }
+    finally { busy = false; }
   });
-
-  app.delete('/api/memory', (_request, response) => {
-    messageStore.clearMemory();
-
-    response.json({
-      shortTermMessages: [],
-      workingMemory: messageStore.getWorkingMemory(),
-      longTermMemory: messageStore.getLongTermMemory(),
-      activeProfile: messageStore.getActiveProfile(),
-      taskLifecycle: serializeTaskLifecycle(messageStore.getTaskLifecycle()),
-    });
+  app.get('/api/health', (_req, res) => res.json({ ok: true }));
+  app.get('/api/messages', (_req, res) => res.json({ messages }));
+  app.delete('/api/messages', (_req, res) => {
+    if (busy) return res.status(409).json({ error: 'Дождитесь завершения ответа.' });
+    messages = [];
+    res.json({ messages });
   });
-
-  app.post('/api/chat', async (request, response) => {
+  app.post('/api/chat', async (req, res) => {
+    if (busy) return res.status(409).json({ error: 'Дождитесь завершения предыдущего запроса.' });
+    const message = req.body?.message;
+    if (typeof message !== 'string' || !message.trim() || message.length > 10_000) return res.status(400).json({ error: 'Введите сообщение от 1 до 10 000 символов.' });
+    busy = true;
     try {
-      const message = agent.normalizeInput(request.body?.message);
-      const invariants = messageStore.getInvariants();
-
-      const conflict = findInvariantConflict(message, invariants);
-
-      if (conflict) {
-        response.status(409).json({
-          error: `Не могу предложить это решение, потому что оно нарушает инвариант: ${conflict.text}`,
-          code: 'INVARIANT_CONFLICT',
-          conflict,
-          invariants,
-          stats: getInvariantStats(invariants),
-        });
-        return;
-      }
-
-      const intent = detectLifecycleIntent(message);
-      const lifecycleResult = evaluateLifecycleIntent(messageStore.getTaskLifecycle(), intent);
-
-      if (!lifecycleResult.ok) {
-        response.status(409).json({
-          error: lifecycleResult.reason,
-          code: 'LIFECYCLE_TRANSITION_BLOCKED',
-          intent,
-          taskLifecycle: serializeTaskLifecycle(lifecycleResult.state, lifecycleResult.reason),
-        });
-        return;
-      }
-
-      if (!lifecycleResult.invokeModel) {
-        const taskLifecycle = messageStore.saveTaskLifecycle(lifecycleResult.state);
-        const messages = saveDeterministicExchange({
-          messageStore,
-          message,
-          answer: lifecycleResult.response,
-          intent,
-        });
-        response.json({
-          answer: lifecycleResult.response,
-          userMessage: messages.userMessage,
-          agentMessage: messages.agentMessage,
-          shortTermMessages: messageStore.getShortTermMessages(),
-          taskLifecycle: serializeTaskLifecycle(taskLifecycle),
-        });
-        return;
-      }
-
-      const settings = memory.normalizeSettings(request.body?.settings);
-      const before = buildCurrentMemoryContext({ messageStore, memory, settings });
-      const conversationHistoryInput = [
-        buildInvariantsInput(invariants),
-        buildTaskLifecycleInput(lifecycleResult.state),
-        ...before.prepared.conversationHistoryInput,
-      ].filter(Boolean);
-      const result = await agent.ask({
-        message,
-        history: before.shortTermMessages,
-        conversationHistoryInput,
-      });
-      const messages = saveMemoryExchange({
-        messageStore,
-        message,
-        result,
-        metadata: {
-          memoryStats: before.prepared.stats,
-          memoryChanges: {
-            workingMemory: [],
-            longTermMemory: [],
-          },
-          memoryUpdateStatus: 'pending',
-        },
-      });
-      const taskLifecycle = messageStore.saveTaskLifecycle(recordLifecycleArtifact(
-        lifecycleResult.state,
-        { intent, content: result.answer },
-      ));
-      updateMemoryInBackground({
-        memory,
-        messageStore,
-        before,
-        message,
-        answer: result.answer,
-      });
-
-      response.json({
-        ...result,
-        userMessage: messages.userMessage,
-        agentMessage: messages.agentMessage,
-        shortTermMessages: messageStore.getShortTermMessages(),
-        workingMemory: before.workingMemory,
-        longTermMemory: before.longTermMemory,
-        activeProfile: before.activeProfile,
-        memoryChanges: {
-          workingMemory: [],
-          longTermMemory: [],
-        },
-        memoryUpdateStatus: 'pending',
-        comparison: buildMemoryTokenComparison(result.usage?.tokenReport),
-        taskLifecycle: serializeTaskLifecycle(taskLifecycle),
-      });
+      const result = await agent.ask({ message: message.trim(), history: messages });
+      const userMessage = { id: randomUUID(), role: 'user', text: message.trim() };
+      const agentMessage = { id: randomUUID(), role: 'agent', text: result.answer, toolCalls: result.toolCalls ?? [] };
+      messages.push(userMessage, agentMessage);
+      res.json({ answer: result.answer, toolCalls: agentMessage.toolCalls, messages });
     } catch (error) {
-      sendError(response, error, 'Unknown server error');
-    }
+      const status = error instanceof AgentInputError ? 400 : error instanceof AgentConfigurationError ? 503 : 502;
+      const safe = error instanceof AgentInputError || error instanceof AgentConfigurationError;
+      res.status(status).json({ error: safe ? error.message : 'Не удалось получить ответ агента. Проверьте подключение MCP и настройки OpenAI.' });
+    } finally { busy = false; }
   });
-
+  app.use('/api', (_req, res) => res.status(404).json({ error: 'API-маршрут не найден.' }));
+  app.use(express.static(fileURLToPath(new URL('../dist', import.meta.url))));
+  app.use((error, _req, res, _next) => res.status(error.type === 'entity.too.large' ? 413 : 400).json({ error: 'Некорректный запрос.' }));
+  app.locals.close = () => mcp.close();
   return app;
 }
-
-function saveDeterministicExchange({ messageStore, message, answer, intent }) {
-  const userMessage = messageStore.addShortTermMessage({ role: 'user', text: message });
-  const agentMessage = messageStore.addShortTermMessage({
-    role: 'agent',
-    text: answer,
-    metadata: { lifecycleIntent: intent, deterministic: true },
-  });
-  return { userMessage, agentMessage };
-}
-
-function buildCurrentMemoryContext({
-  messageStore,
-  memory,
-  settings,
-  activeProfile = null,
-  shortTermMessages = null,
-}) {
-  const resolvedShortTermMessages = shortTermMessages ?? messageStore.getShortTermMessages();
-  const workingMemory = messageStore.getWorkingMemory();
-  const longTermMemory = messageStore.getLongTermMemory();
-  const resolvedProfile = activeProfile ?? messageStore.getActiveProfile();
-  const prepared = memory.previewContext({
-    shortTermMessages: resolvedShortTermMessages,
-    workingMemory,
-    longTermMemory,
-    activeProfile: resolvedProfile,
-    settings,
-  });
-
-  return {
-    shortTermMessages: resolvedShortTermMessages,
-    workingMemory,
-    longTermMemory,
-    activeProfile: resolvedProfile,
-    prepared,
-  };
-}
-
-function buildProfileComparisonHistory(comparisons, profileId) {
-  return comparisons.flatMap((comparison) => {
-    const result = comparison.results.find((item) => item.profile?.id === profileId);
-
-    if (!result) {
-      return [];
-    }
-
-    return [
-      { role: 'user', text: comparison.question },
-      { role: 'agent', text: result.answer },
-    ];
-  });
-}
-
-function saveMemoryExchange({ messageStore, message, result, metadata }) {
-  const userMessage = messageStore.addShortTermMessage({
-    role: 'user',
-    text: message,
-  });
-  const agentMessage = messageStore.addShortTermMessage({
-    role: 'agent',
-    text: result.answer,
-    metadata: {
-      model: result.model,
-      usage: result.usage,
-      settings: result.settings,
-      ...metadata,
-    },
-  });
-
-  return {
-    userMessage,
-    agentMessage,
-  };
-}
-
-function updateMemoryInBackground({ memory, messageStore, before, message, answer }) {
-  setImmediate(async () => {
-    try {
-      const memoryUpdate = await memory.updateMemory({
-        workingMemory: before.workingMemory,
-        longTermMemory: before.longTermMemory,
-        shortTermMessages: before.shortTermMessages,
-        userMessage: message,
-        agentAnswer: answer,
-      });
-      const currentShortTermMessages = messageStore.getShortTermMessages();
-      const exchangeStillExists =
-        currentShortTermMessages.some((item) => item.role === 'user' && item.text === message) &&
-        currentShortTermMessages.some((item) => item.role === 'agent' && item.text === answer);
-
-      if (!exchangeStillExists) {
-        return;
-      }
-
-      messageStore.saveWorkingMemory(memoryUpdate.workingMemory);
-      messageStore.saveLongTermMemory(memoryUpdate.longTermMemory);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown memory update error';
-      console.error(`Background memory update failed: ${message}`);
-    }
-  });
-}
-
-function buildMemoryStats({ shortTermMessages, workingMemory, longTermMemory, activeProfile }) {
-  return {
-    shortTerm: {
-      rawMessageCount: shortTermMessages.length,
-    },
-    working: {
-      characters: JSON.stringify(workingMemory).length,
-    },
-    longTerm: {
-      characters: JSON.stringify(longTermMemory).length,
-    },
-    profile: {
-      characters: JSON.stringify(activeProfile).length,
-      activeProfileId: activeProfile?.id ?? null,
-    },
-  };
-}
-
-function sendError(response, error, fallback) {
-  const message = error instanceof Error ? error.message : fallback;
-  const status = getErrorStatus(error);
-  const body = { error: message };
-
-  if (error instanceof AgentContextOverflowError) {
-    body.details = error.details;
-  }
-
-  response.status(status).json(body);
-}
-
-function getErrorStatus(error) {
-  if (error instanceof AgentInputError || error instanceof AgentContextOverflowError) {
-    return 400;
-  }
-
-  if (error instanceof AgentConfigurationError) {
-    return 500;
-  }
-
-  if (error instanceof AgentApiError) {
-    return 502;
-  }
-
-  return 500;
-}
-
-const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
-
-if (isMainModule) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const app = createApp();
-  const server = app.listen(port, () => {
-    console.log(`Agent API is running on http://localhost:${port}`);
-    console.log('Day 15: controlled lifecycle, invariants, profile, and layered memory');
-  });
-
-  server.on('error', (error) => {
-    console.error(`Agent API failed to start: ${error.message}`);
-    process.exitCode = 1;
-  });
+  const port = Number(process.env.PORT || 3001);
+  const server = app.listen(port, '127.0.0.1', () => console.log(`День 17 · MCP Altegio: http://127.0.0.1:${port}`));
+  let stopping = false;
+  const stop = async () => {
+    if (stopping) return;
+    stopping = true;
+    const deadline = setTimeout(() => process.exit(1), 5000);
+    deadline.unref();
+    server.close();
+    await app.locals.close();
+  };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
 }

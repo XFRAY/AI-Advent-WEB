@@ -1,46 +1,91 @@
+import 'dotenv/config';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { inputSchema, TOOL_NAME } from './altegio.js';
 
 const defaultServerPath = fileURLToPath(new URL('./server.js', import.meta.url));
-
-export async function listMcpTools({ serverPath = defaultServerPath, timeoutMs = 10_000 } = {}) {
-  const client = new Client({ name: 'day-16-client', version: '1.0.0' });
-  const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: [serverPath],
-    stderr: 'inherit',
-  });
-
-  try {
-    await client.connect(transport, { timeout: timeoutMs });
-    const tools = [];
+export class McpConnection {
+  constructor({ serverPath = defaultServerPath, env = process.env, timeoutMs = 30_000 } = {}) {
+    Object.assign(this, { serverPath, timeoutMs });
+    // Explicit allowlist: the MCP child does not need the OpenAI key.
+    this.env = Object.fromEntries(['ALTEGIO_PARTNER_TOKEN', 'ALTEGIO_USER_TOKEN', 'ALTEGIO_LOCATION_ID'].filter(key => env[key]).map(key => [key, env[key]]));
+    this.client = null;
+    this.pending = null;
+  }
+  async setUserToken(token) {
+    await this.close();
+    if (token) this.env.ALTEGIO_USER_TOKEN = token;
+    else delete this.env.ALTEGIO_USER_TOKEN;
+  }
+  async setLocationId(locationId) {
+    await this.close();
+    if (locationId) this.env.ALTEGIO_LOCATION_ID = String(locationId);
+    else delete this.env.ALTEGIO_LOCATION_ID;
+  }
+  async connect() {
+    if (this.client) return this.client;
+    if (this.pending) return this.pending;
+    this.pending = this.open();
+    try { return await this.pending; } finally { this.pending = null; }
+  }
+  async open() {
+    const transport = new StdioClientTransport({ command: process.execPath, args: [this.serverPath], env: this.env, stderr: 'pipe' });
+    const client = new Client({ name: 'day-17-client', version: '1.0.0' });
+    transport.stderr?.on('data', () => {});
+    try {
+      await client.connect(transport, { timeout: 10_000 });
+      this.transport = transport;
+      this.client = client;
+      client.onclose = () => { if (this.client === client) this.client = null; };
+      return client;
+    } catch {
+      await client.close().catch(() => {});
+      await transport.close().catch(() => {});
+      throw new Error('Не удалось подключиться к MCP-серверу.');
+    }
+  }
+  async listTools() {
+    const client = await this.connect();
+    const result = [];
     let cursor;
-    const deadline = Date.now() + timeoutMs;
+    const deadline = Date.now() + this.timeoutMs;
     do {
       const remaining = deadline - Date.now();
-      if (remaining <= 0) throw new Error('Превышено время ожидания списка инструментов');
+      if (remaining <= 0) throw new Error('Истекло время получения инструментов MCP.');
       const page = await client.listTools(cursor ? { cursor } : {}, { timeout: remaining });
-      tools.push(...page.tools);
+      result.push(...page.tools);
       cursor = page.nextCursor;
     } while (cursor);
-    return tools;
-  } finally {
-    await client.close();
-    await transport.close();
+    return result.filter(tool => tool.name === TOOL_NAME);
+  }
+  async callTool(name, args) {
+    if (name !== TOOL_NAME) throw new Error('Неизвестный инструмент.');
+    const parsed = inputSchema.safeParse(args);
+    if (!parsed.success) throw new Error('Некорректные аргументы инструмента.');
+    const client = await this.connect();
+    return client.callTool({ name, arguments: parsed.data }, undefined, { timeout: this.timeoutMs });
+  }
+  async close() {
+    if (this.pending) await this.pending.catch(() => {});
+    await this.client?.close();
+    await this.transport?.close();
+    this.client = null;
+    this.transport = null;
   }
 }
-
+export async function listMcpTools(options) {
+  const connection = new McpConnection(options);
+  try { return await connection.listTools(); } finally { await connection.close(); }
+}
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const tools = await listMcpTools({ serverPath: process.argv[2] });
     console.log('MCP-соединение установлено.');
     console.log(`Доступно инструментов: ${tools.length}`);
-    console.log(JSON.stringify(tools.map(({ name, description, inputSchema }) => ({
-      name, description, inputSchema,
-    })), null, 2));
-  } catch (error) {
-    console.error(`Ошибка MCP: ${error.message}`);
+    console.log(JSON.stringify(tools, null, 2));
+  } catch {
+    console.error('Ошибка MCP: не удалось получить список инструментов.');
     process.exitCode = 1;
   }
 }

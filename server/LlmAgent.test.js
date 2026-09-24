@@ -1,198 +1,69 @@
-import assert from 'node:assert/strict';
 import test from 'node:test';
-import { AgentContextOverflowError, LlmAgent } from './LlmAgent.js';
-
-test('LlmAgent blocks real context overflow before calling the model', async () => {
-  const agent = new LlmAgent({ apiKey: 'test-key', model: 'gpt-5-nano' });
-  let modelWasCalled = false;
-
-  agent.client = {
-    responses: {
-      create: async () => {
-        modelWasCalled = true;
-        return {
-          output_text: 'Should not happen',
-          usage: {},
-        };
-      },
-    },
-  };
-  agent.tokenUsageAnalyzer = {
-    async buildTokenReport() {
-      return {
-        currentRequestTokens: 10,
-        historyTokens: 400_001,
-        fullInputTokens: 400_011,
-        countingMethod: 'api',
-        context: {
-          status: 'overflow',
-          contextWindow: 400_000,
-          remainingInputTokens: -11,
-        },
-      };
-    },
-  };
-
-  await assert.rejects(
-    () => agent.ask({ message: 'Hello', history: [] }),
-    (error) => {
-      assert.ok(error instanceof AgentContextOverflowError);
-      assert.deepEqual(error.details, {
-        contextWindow: 400_000,
-        currentRequestTokens: 10,
-        fullInputTokens: 400_011,
-        historyTokens: 400_001,
-        remainingInputTokens: -11,
-      });
-
-      return true;
-    },
-  );
-  assert.equal(modelWasCalled, false);
+import assert from 'node:assert/strict';
+import { LlmAgent } from './LlmAgent.js';
+const call = (args = '{}', name = 'altegio_list_services') => ({ type: 'function_call', name, arguments: args, call_id: 'call-1' });
+function setup(responses, output = { structuredContent: { services: [{ title: 'Стрижка', price_min: 50 }], truncated: false } }) {
+  const requests = [], executed = [];
+  const mcp = { listTools: async () => [{ name: 'altegio_list_services', description: 'Services', inputSchema: { type: 'object' } }], callTool: async (...args) => { executed.push(args); return output; } };
+  const client = { responses: { create: async request => { requests.push(structuredClone(request)); return responses[Math.min(requests.length - 1, responses.length - 1)]; } } };
+  return { agent: new LlmAgent({ client, mcp }), requests, executed };
+}
+test('round trip preserves reasoning, call_id, results and returns trace', async () => {
+  const reasoning = { type: 'reasoning', id: 'r1', summary: [], encrypted_content: 'encrypted' };
+  const { agent, requests, executed } = setup([{ output: [reasoning, call('{"query":"стрижка"}')] }, { output: [], output_text: 'Стрижка — от 50.' }]);
+  const result = await agent.ask({ message: 'Услуги?', history: [{ role: 'user', text: 'Привет' }, { role: 'agent', text: 'Здравствуйте' }] });
+  assert.equal(executed.length, 1); assert.equal(requests.length, 2);
+  assert.ok(requests[1].input.some(item => item.type === 'reasoning'));
+  const output = requests[1].input.find(item => item.type === 'function_call_output');
+  assert.equal(output.call_id, 'call-1'); assert.equal(JSON.parse(output.output).services[0].price_min, 50);
+  assert.equal(result.toolCalls[0].status, 'success'); assert.equal(result.answer, 'Стрижка — от 50.');
+});
+test('ordinary conversation does not call MCP tool', async () => {
+  const { agent, executed } = setup([{ output: [], output_text: 'Привет!' }]);
+  assert.equal((await agent.ask({ message: 'Привет' })).answer, 'Привет!'); assert.equal(executed.length, 0);
+});
+test('rejects unknown tools, invalid JSON and invalid arguments before execution', async () => {
+  for (const item of [call('{'), call('{"limit":0}'), call('{}', 'unknown')]) {
+    const { agent, executed, requests } = setup([{ output: [item] }, { output: [], output_text: 'Ошибка инструмента.' }]);
+    const result = await agent.ask({ message: 'Услуги' });
+    assert.equal(executed.length, 0); assert.equal(result.toolCalls[0].status, 'error');
+    assert.ok(JSON.parse(requests[1].input.at(-1).output).error);
+  }
+});
+test('returns tool errors to model', async () => {
+  const { agent, requests } = setup([{ output: [call()] }, { output: [], output_text: 'Нет доступа.' }], { isError: true, content: [{ type: 'text', text: '{"error":"Нет доступа"}' }] });
+  const result = await agent.ask({ message: 'Услуги' });
+  assert.equal(result.toolCalls[0].status, 'error'); assert.match(requests[1].input.at(-1).output, /Нет доступа/);
+});
+test('stops at five actual tool calls and disables tools for final answer', async () => {
+  const { agent, requests, executed } = setup([{ output: [call()] }]);
+  const result = await agent.ask({ message: 'Услуги' });
+  assert.equal(executed.length, 5); assert.equal(requests.length, 6); assert.equal(requests.at(-1).tool_choice, 'none');
+  assert.match(result.answer, /лимит/);
 });
 
-test('LlmAgent can preview context without a draft message', async () => {
-  const agent = new LlmAgent({ apiKey: 'test-key', model: 'gpt-5-nano' });
-  let receivedCurrentInput = null;
-  let receivedConversationHistoryInput = null;
-
-  agent.tokenUsageAnalyzer = {
-    async buildTokenReport({ conversationHistoryInput, currentInput }) {
-      receivedCurrentInput = currentInput;
-      receivedConversationHistoryInput = conversationHistoryInput;
-
-      return {
-        systemInstructionTokens: 26,
-        conversationHistoryTokens: 1,
-        currentRequestTokens: 0,
-        historyTokens: 27,
-        fullInputTokens: 27,
-        countingMethod: 'api',
-        context: {
-          status: 'ok',
-          contextWindow: 16_385,
-          remainingInputTokens: 16_358,
-        },
-      };
-    },
-  };
-
-  const tokenReport = await agent.buildTokenReport({
-    message: '',
-    history: [{ role: 'agent', text: 'Saved answer' }],
-  });
-
-  assert.deepEqual(receivedCurrentInput, []);
-  assert.deepEqual(receivedConversationHistoryInput, [{ role: 'assistant', content: 'Saved answer' }]);
-  assert.equal(tokenReport.context.status, 'ok');
-  assert.equal(tokenReport.systemInstructionTokens, 26);
-  assert.equal(tokenReport.conversationHistoryTokens, 1);
-  assert.equal(tokenReport.currentRequestTokens, 0);
+test('a batch of tool calls cannot exceed five MCP executions', async () => {
+  const { agent, executed, requests } = setup([{ output: Array.from({ length: 7 }, (_, i) => ({ ...call(), call_id: `batch-${i}` })) }, { output: [], output_text: 'Done' }]);
+  const result = await agent.ask({ message: 'Услуги' });
+  assert.equal(executed.length, 5);
+  assert.equal(result.toolCalls.filter(item => item.status === 'success').length, 5);
+  assert.equal(requests[1].input.filter(item => item.type === 'function_call_output').length, 7);
 });
-
-test('LlmAgent sends the full model input on successful requests', async () => {
-  const agent = new LlmAgent({ apiKey: 'test-key', model: 'gpt-5-nano' });
-  let receivedInput = null;
-
-  agent.client = {
-    responses: {
-      create: async ({ input }) => {
-        receivedInput = input;
-
-        return {
-          output_text: 'Done',
-          usage: {
-            input_tokens: 25,
-            output_tokens: 5,
-            total_tokens: 30,
-          },
-        };
-      },
-    },
-  };
-  agent.tokenUsageAnalyzer = {
-    async buildTokenReport() {
-      return {
-        currentRequestTokens: 4,
-        historyTokens: 12,
-        fullInputTokens: 16,
-        countingMethod: 'api',
-        context: {
-          status: 'ok',
-          contextWindow: 1000,
-          remainingInputTokens: 984,
-        },
-      };
-    },
-  };
-
-  const response = await agent.ask({
-    message: 'Next',
-    history: [{ role: 'agent', text: 'Previous answer' }],
-  });
-
-  assert.equal(response.answer, 'Done');
-  assert.equal(receivedInput.at(-1).role, 'user');
-  assert.equal(receivedInput.at(-1).content, 'Next');
+test('missing configuration and failed model requests never expose credentials', async () => {
+  await assert.rejects(new LlmAgent().ask({ message: 'Hi' }), /OPENAI_API_KEY/);
+  const { agent } = setup([]);
+  agent.client.responses.create = async () => { throw new Error('SECRET_API_KEY'); };
+  await assert.rejects(agent.ask({ message: 'Hi' }), error => !error.message.includes('SECRET_API_KEY'));
 });
-
-test('LlmAgent can send a prepared compressed context instead of raw history', async () => {
-  const agent = new LlmAgent({ apiKey: 'test-key', model: 'gpt-5-nano' });
-  let receivedInput = null;
-  let receivedConversationHistoryInput = null;
-  const compressedContext = [
-    {
-      role: 'system',
-      content: 'Summary of earlier conversation.',
-    },
-    {
-      role: 'user',
-      content: 'Recent raw message',
-    },
-  ];
-
-  agent.client = {
-    responses: {
-      create: async ({ input }) => {
-        receivedInput = input;
-
-        return {
-          output_text: 'Compressed done',
-          usage: {
-            input_tokens: 20,
-            output_tokens: 5,
-            total_tokens: 25,
-          },
-        };
-      },
-    },
+test('preserves tool trace if final model request fails', async () => {
+  const { agent } = setup([{ output: [call()] }]);
+  let count = 0;
+  agent.client.responses.create = async () => {
+    if (++count === 1) return { output: [call()] };
+    throw new Error('SECRET');
   };
-  agent.tokenUsageAnalyzer = {
-    async buildTokenReport({ conversationHistoryInput }) {
-      receivedConversationHistoryInput = conversationHistoryInput;
-
-      return {
-        currentRequestTokens: 4,
-        historyTokens: 12,
-        fullInputTokens: 16,
-        countingMethod: 'api',
-        context: {
-          status: 'ok',
-          contextWindow: 1000,
-          remainingInputTokens: 984,
-        },
-      };
-    },
-  };
-
-  await agent.ask({
-    message: 'Next',
-    history: [{ role: 'agent', text: 'This raw history should not be sent' }],
-    conversationHistoryInput: compressedContext,
-  });
-
-  assert.equal(receivedInput[1].content, 'Summary of earlier conversation.');
-  assert.equal(receivedInput[2].content, 'Recent raw message');
-  assert.equal(receivedInput.some((item) => item.content === 'This raw history should not be sent'), false);
-  assert.equal(receivedConversationHistoryInput, compressedContext);
+  const result = await agent.ask({ message: 'Услуги' });
+  assert.equal(result.toolCalls.length, 1);
+  assert.match(result.answer, /не смогла/);
+  assert.doesNotMatch(JSON.stringify(result), /SECRET/);
 });
