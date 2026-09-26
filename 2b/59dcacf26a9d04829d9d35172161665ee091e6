@@ -1,0 +1,115 @@
+README.md
+  s_8672dc3ae8c693::t_d7919a321f4eae 7,17
+  s_8672dc3ae8c693::t_3ded1c79bba3e9 1,3-4,9-16,18-29,32
+  s_8672dc3ae8c693::t_533877945f81d0 73-74,86-87
+  s_8672dc3ae8c693::t_2b81c13306f528 5-6,33-37,66-69,88-89
+  s_8672dc3ae8c693::t_3e06de09a69096 52
+  s_8672dc3ae8c693::t_83a44025791d96 30-31,56,59-60,65,70-72,78-85,99-101,104
+  s_8672dc3ae8c693::t_0ce64bdcb4d905 102
+  s_8672dc3ae8c693::t_77e5f21485f909 8
+server/LlmAgent.test.js
+  s_8672dc3ae8c693::t_796fc327c31be7 27
+  s_8672dc3ae8c693::t_d74f0f3f871087 73-74
+  s_8672dc3ae8c693::t_0da3195f80c1ce 4-8,10-16,18,20,22-26,28-29,31-34,36,41,48-49,51-54,56,59,62,64-65,68,70,75-76,79,86
+server/pipeline/files.test.js
+  s_8672dc3ae8c693::t_e5b5f69a15e9d8 1-5,7-31,33
+  s_8672dc3ae8c693::t_7d385932bfe3ac 6,32
+server/pipeline/tools.js
+  s_8672dc3ae8c693::t_c65536382bf017 1-29
+server/pipeline/files.js
+  s_8672dc3ae8c693::t_e24814e9c417c4 2,4-5,10-32
+  s_8672dc3ae8c693::t_adfe7d2fa25e6b 3,6-9
+  s_8672dc3ae8c693::t_7d385932bfe3ac 1
+server/testing/pipeline-mcp-fixture.js
+  s_8672dc3ae8c693::t_e5b5f69a15e9d8 1-11
+server/LlmAgent.js
+  s_8672dc3ae8c693::t_804221bc2e9713 17
+  s_8672dc3ae8c693::t_60c7333b79a505 2-4,10-13,16,19-34,47-48,51,53-54,57-58,69,74-75,77,79-84,86-88,93
+  s_8672dc3ae8c693::t_b1517956d9a9c6 9
+  s_8672dc3ae8c693::t_d74f0f3f871087 60,62-63
+  s_8672dc3ae8c693::t_ebca48ec441eff 18
+package.json
+  s_8672dc3ae8c693::t_31d1348dbbb065 2
+server/mcp/altegio.js
+  s_8672dc3ae8c693::t_804221bc2e9713 3,24-25,51
+server/pipeline/integration.test.js
+  s_8672dc3ae8c693::t_2ea42b1cb062b5 3,10,12-15,17-18,20-30,33-43,45-46,48,52-53,56-57,63,70-73
+  s_8672dc3ae8c693::t_7d385932bfe3ac 31
+  s_8672dc3ae8c693::t_b6347f52e618c2 66,68-69
+  s_8672dc3ae8c693::t_b27ab18d6a9791 47,49-51,60-62,64-65,67,74
+src/styles.css
+  s_8672dc3ae8c693::t_328ef9a3e3400f 12-15
+.env.example
+  s_8672dc3ae8c693::t_31d1348dbbb065 6-7
+server/mcp/tools.js
+  s_8672dc3ae8c693::t_028170e361c9ec 1-2
+  s_8672dc3ae8c693::t_804221bc2e9713 3
+server/pipeline/summarize.js
+  s_8672dc3ae8c693::t_1a51d4b69da6e7 39-40
+  s_8672dc3ae8c693::t_e05fa4b696f8bf 47
+  s_8672dc3ae8c693::t_c9fa978723fa0e 1-38,41-46,48-65
+server/pipeline/summarize.test.js
+  s_8672dc3ae8c693::t_e5b5f69a15e9d8 1-28,37-45,47
+  s_8672dc3ae8c693::t_e05fa4b696f8bf 46
+  s_8672dc3ae8c693::t_1a51d4b69da6e7 29-36
+server/mcp/client.js
+  s_8672dc3ae8c693::t_2e32219272807b 5,12,67,83,90
+  s_8672dc3ae8c693::t_fe0c78a3b1617b 34
+server/pipeline/runner.js
+  s_8672dc3ae8c693::t_9845d7e43efb32 1-30
+server/mcp/client.test.js
+  s_8672dc3ae8c693::t_fe20b5df2065c4 16
+  s_8672dc3ae8c693::t_2e32219272807b 37-38
+  s_8672dc3ae8c693::t_4ea00ae61de025 13,18,20,22,25,31,40
+server/index.test.js
+  s_8672dc3ae8c693::t_b27ab18d6a9791 7-9,19-21,25,27,34-35
+src/main.jsx
+  s_8672dc3ae8c693::t_b6347f52e618c2 3,60-61
+  s_8672dc3ae8c693::t_2e32219272807b 19,37,44,78
+  s_8672dc3ae8c693::t_ee130ae66732c4 55
+  s_8672dc3ae8c693::t_328ef9a3e3400f 57-59,62,64
+  s_8672dc3ae8c693::t_31d1348dbbb065 43
+server/mcp/server.js
+  s_8672dc3ae8c693::t_b6347f52e618c2 1
+  s_8672dc3ae8c693::t_adfe7d2fa25e6b 7
+  s_8672dc3ae8c693::t_804221bc2e9713 4
+  s_8672dc3ae8c693::t_fe0c78a3b1617b 5-6,10-21
+  s_8672dc3ae8c693::t_2e32219272807b 9,28
+index.html
+  s_8672dc3ae8c693::t_31d1348dbbb065 8,15
+server/index.js
+  s_8672dc3ae8c693::t_d62895666c755e 33
+  s_8672dc3ae8c693::t_e31f324b8e4523 7,88,90-92,94-95,106,150
+  s_8672dc3ae8c693::t_adfe7d2fa25e6b 8,98-105
+  s_8672dc3ae8c693::t_3f9ac865260ede 14,135-136,143
+  s_8672dc3ae8c693::t_2e32219272807b 155
+server/auth.test.js
+  s_8672dc3ae8c693::t_804221bc2e9713 29,38
+  s_8672dc3ae8c693::t_d62895666c755e 109,117-120
+  s_8672dc3ae8c693::t_4ea00ae61de025 31
+package-lock.json
+  s_8672dc3ae8c693::t_2aa1312a70653e 2,8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2b59dcacf26a9d04829d9d35172161665ee091e6",
+  "prompts": {},
+  "sessions": {
+    "s_8672dc3ae8c693": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "376dd219-d422-4b93-a927-62a3fbaa2640",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Anton Taklionak <anton.taklionak@viber.com>",
+      "token_usage": {
+        "input_tokens": 436,
+        "output_tokens": 196262,
+        "cache_creation_tokens": 418764,
+        "cache_read_tokens": 32226509
+      },
+      "billing_source": "subscription"
+    }
+  }
+}
