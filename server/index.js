@@ -9,6 +9,10 @@ import { authorizeAltegio, listAltegioLocations, AltegioAuthError } from './Alte
 export function createApp({ agent, mcp = new McpConnection(), authFetch = globalThis.fetch, locationsFetch = globalThis.fetch } = {}) {
   agent ??= new LlmAgent({ apiKey: process.env.OPENAI_API_KEY, model: process.env.OPENAI_MODEL, mcp });
   const app = express();
+  let background = false;
+  let recoveryTimer;
+  let closing = false;
+  let starting = false;
   let messages = [];
   let busy = false;
   let authenticated = Boolean(mcp.env?.ALTEGIO_USER_TOKEN);
@@ -60,6 +64,7 @@ export function createApp({ agent, mcp = new McpConnection(), authFetch = global
     if (busy) return res.status(409).json({ error: 'Дождитесь завершения текущего запроса.' });
     busy = true;
     try {
+      if (mcp.hasScheduler) await mcp.callTool('summary_schedule_pause', {});
       await mcp.setUserToken(null);
       await mcp.setLocationId(null);
       locations = []; locationsLoaded = false; locationsError = null;
@@ -88,8 +93,36 @@ export function createApp({ agent, mcp = new McpConnection(), authFetch = global
     } catch { res.status(502).json({ error: 'Не удалось переключить филиал. Повторите попытку.' }); }
     finally { busy = false; }
   });
+  const summaryRoutes = [
+    ['get', '/api/summary/status', 'summary_schedule_status'],
+    ['get', '/api/summary/results', 'summary_results'],
+    ['post', '/api/summary/schedule', 'summary_schedule_set'],
+    ['post', '/api/summary/pause', 'summary_schedule_pause'],
+    ['post', '/api/summary/run', 'summary_run_now'],
+  ];
+  for (const [method, path, tool] of summaryRoutes) app[method](path, async (req, res) => {
+    if (busy || closing) return res.status(409).json({ error: 'Дождитесь завершения текущего запроса.' });
+    busy = true;
+    try {
+      const args = method === 'get' ? (tool === 'summary_results' && req.query.limit !== undefined ? { limit: Number(req.query.limit) } : {}) : req.body ?? {};
+      const output = await mcp.callTool(tool, args);
+      const result = output.structuredContent ?? JSON.parse(output.content.find(item => item.type === 'text')?.text || '{}');
+      res.status(output.isError ? 422 : 200).json(result);
+    } catch { res.status(502).json({ error: 'Не удалось выполнить команду сводки. Проверьте параметры и подключение MCP.' }); }
+    finally { busy = false; }
+  });
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
   app.get('/api/messages', (_req, res) => res.json({ messages }));
+  app.delete('/api/history', async (_req, res) => {
+    if (busy || closing) return res.status(409).json({ error: 'Дождитесь завершения текущего запроса.' });
+    busy = true;
+    try {
+      const summary = await mcp.clearSummaryHistory();
+      messages = [];
+      res.json({ messages, summary });
+    } catch { res.status(502).json({ error: 'Не удалось очистить историю. Переписка сохранена, повторите попытку.' }); }
+    finally { busy = false; }
+  });
   app.delete('/api/messages', (_req, res) => {
     if (busy) return res.status(409).json({ error: 'Дождитесь завершения ответа.' });
     messages = [];
@@ -115,18 +148,35 @@ export function createApp({ agent, mcp = new McpConnection(), authFetch = global
   app.use('/api', (_req, res) => res.status(404).json({ error: 'API-маршрут не найден.' }));
   app.use(express.static(fileURLToPath(new URL('../dist', import.meta.url))));
   app.use((error, _req, res, _next) => res.status(error.type === 'entity.too.large' ? 413 : 400).json({ error: 'Некорректный запрос.' }));
-  app.locals.close = () => mcp.close();
+  app.locals.start = async () => {
+    if (background) return;
+    background = true;
+    if (authenticated) {
+      await refreshLocations();
+      if (!locationsLoaded) await mcp.setLocationId(null);
+    }
+    await mcp.connect();
+    recoveryTimer = setInterval(async () => {
+      if (closing || busy || starting || mcp.client) return;
+      starting = true;
+      try { await mcp.connect(); } catch { /* Retry next tick; API exposes availability errors. */ }
+      finally { starting = false; }
+    }, 1000);
+    recoveryTimer.unref();
+  };
+  app.locals.close = async () => { closing = true; clearInterval(recoveryTimer); await mcp.close(); };
   return app;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const app = createApp();
+  await app.locals.start();
   const port = Number(process.env.PORT || 3001);
-  const server = app.listen(port, '127.0.0.1', () => console.log(`День 17 · MCP Altegio: http://127.0.0.1:${port}`));
+  const server = app.listen(port, '127.0.0.1', () => console.log(`День 18 · MCP Altegio: http://127.0.0.1:${port}`));
   let stopping = false;
   const stop = async () => {
     if (stopping) return;
     stopping = true;
-    const deadline = setTimeout(() => process.exit(1), 5000);
+    const deadline = setTimeout(() => process.exit(1), 65_000);
     deadline.unref();
     server.close();
     await app.locals.close();

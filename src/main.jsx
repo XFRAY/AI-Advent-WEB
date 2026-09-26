@@ -2,10 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Alert, Box, Button, Chip, CircularProgress, Container, CssBaseline, Paper, Stack, TextField, ThemeProvider, Typography, createTheme } from '@mui/material';
 import './styles.css';
+import SummaryPanel from './SummaryPanel.jsx';
 import AltegioLogin from './AltegioLogin.jsx';
 
 const theme = createTheme({ palette: { primary: { main: '#176b57' }, background: { default: '#f4f6f3' } }, typography: { fontFamily: 'Inter, system-ui, sans-serif' }, shape: { borderRadius: 16 } });
-const example = 'Какие услуги доступны и сколько стоят?';
+const example = 'Собирай денежную сводку каждый час';
 async function request(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json' } });
   const data = await response.json();
@@ -17,7 +18,8 @@ function App() {
   const [message, setMessage] = useState('');
   const [chatBusy, setBusy] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
-  const busy = chatBusy || authBusy;
+  const [summaryBusy, setSummaryBusy] = useState(false);
+  const busy = chatBusy || authBusy || summaryBusy;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const messageList = useRef(null);
@@ -35,22 +37,27 @@ function App() {
   }
   async function clear() {
     setBusy(true); setError('');
-    try { const data = await request('/api/messages', { method: 'DELETE' }); setMessages(data.messages); }
+    try { const data = await request('/api/history', { method: 'DELETE' }); setMessages(data.messages); setMessage(''); setError(''); }
     catch (e) { setError(e.message); }
     finally { setBusy(false); }
   }
-  return <Container maxWidth="md" sx={{ height: '100dvh', minHeight: 560, display: 'flex', flexDirection: 'column', gap: 1.5, py: { xs: 1.5, sm: 2 } }}>
+  return <Container maxWidth="xl" className="app-shell" sx={{ height: '100dvh', minHeight: 'min(560px, 100dvh)', overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 1.5, py: { xs: 1.5, sm: 2 } }}>
     <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between", gap: 2, flexShrink: 0 }}>
-      <Box><Typography variant="overline" color="primary">AI ADVENT / 17</Typography><Typography component="h1" variant="h5" fontWeight={750}>MCP Altegio</Typography></Box>
-      <Button variant="outlined" onClick={clear} disabled={busy || loading || !messages.length}>Очистить чат</Button>
+      <Box><Typography variant="overline" color="primary">AI ADVENT / 18</Typography><Typography component="h1" variant="h5" fontWeight={750}>Фоновые сводки Altegio</Typography></Box>
+      <Button variant="outlined" onClick={clear} disabled={busy || loading}>Очистить всё</Button>
     </Stack>
+    <Box className="workspace">
+    <Stack className="settings-pane" spacing={1.5}>
     <AltegioLogin busy={busy} onBusyChange={setAuthBusy} onSessionChange={() => { setMessages([]); setError(''); }} />
-    <Paper ref={messageList} role="log" aria-label="История сообщений" variant="outlined" sx={{ p: { xs: 1.5, sm: 2 }, flex: 1, minHeight: 120, overflowY: 'auto', overflowWrap: 'anywhere', overscrollBehavior: 'contain' }}>
+    <SummaryPanel busy={busy} onBusyChange={setSummaryBusy} />
+    </Stack>
+    <Box className="chat-pane">
+    <Paper ref={messageList} role="log" aria-label="История сообщений" variant="outlined" sx={{ p: { xs: 1.5, sm: 2 }, flex: 1, minHeight: 0, overflowY: 'auto', overflowWrap: 'anywhere', overscrollBehavior: 'contain' }}>
       <Stack spacing={3} aria-live="polite">
         {loading && <CircularProgress size={22} aria-label="Загрузка истории" />}
         {!loading && !messages.length && <Box sx={{ py: 2, textAlign: 'center' }}>
           <Typography variant="h6" sx={{ mb: 1 }}>С чего начнём?</Typography>
-          <Typography color="text.secondary" sx={{ mb: 3 }}>Агент найдёт услуги в Altegio и использует результат в ответе.</Typography>
+          <Typography color="text.secondary" sx={{ mb: 3 }}>Агент настроит расписание, соберёт движение денег и объяснит сводку. Поиск услуг тоже доступен.</Typography>
           <Button variant="outlined" onClick={() => setMessage(example)}>{example}</Button>
         </Box>}
         {messages.map(item => <Box key={item.id} sx={{ alignSelf: item.role === 'user' ? 'flex-end' : 'stretch', maxWidth: '100%' }}>
@@ -72,7 +79,9 @@ function App() {
       <TextField fullWidth multiline maxRows={4} label="Сообщение агенту" value={message} onChange={e => setMessage(e.target.value)} disabled={busy || loading} slotProps={{ htmlInput: { maxLength: 10_000 } }} />
       <Button type="submit" variant="contained" disabled={busy || loading || !message.trim()} sx={{ px: { xs: 1.5, sm: 3 }, minHeight: 56 }}>Отправить</Button>
     </Stack>
-    <Typography variant="caption" color="text.secondary" component="p" sx={{ flexShrink: 0 }}>История хранится только до перезапуска сервера.</Typography>
+    <Typography variant="caption" color="text.secondary" component="p" sx={{ flexShrink: 0 }}>Сводки и расписание сохраняются на диске. История чата — до перезапуска сервера.</Typography>
+    </Box>
+    </Box>
   </Container>;
 }
 createRoot(document.getElementById('root')).render(<React.StrictMode><ThemeProvider theme={theme}><CssBaseline /><App /></ThemeProvider></React.StrictMode>);
