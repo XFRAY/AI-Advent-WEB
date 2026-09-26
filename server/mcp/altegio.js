@@ -1,12 +1,10 @@
 import { z } from 'zod';
 
-export const TOOL_NAME = 'altegio_list_services';
-export const inputShape = {
+const inputShape = {
   query: z.string().trim().max(200).optional().describe('Буквальный поиск по названию без учёта регистра. Названия могут быть на другом языке. Если совпадений нет, searchMode=catalog_fallback возвращает кандидатов для отбора по смыслу, а не точные совпадения. Без параметра — каталог.'),
   limit: z.number().int().min(1).max(100).default(20).describe('Максимальное число услуг в ответе: 1–100, по умолчанию 20.'),
 };
 export const inputSchema = z.object(inputShape).strict();
-export const description = 'Получает актуальные услуги и доступные цены настроенного филиала Altegio. Вызывай для вопросов об услугах и ценах. null означает, что цена или валюта не указана.';
 export class AltegioError extends Error {}
 const numberOrNull = (value) => {
   if (value === null || value === undefined || value === '') return null;
@@ -23,8 +21,8 @@ export class AltegioApi {
   async listServices(args) {
     const { query = '', limit } = inputSchema.parse(args);
     if (!this.partnerToken) throw new AltegioError('Настройте ALTEGIO_PARTNER_TOKEN на сервере.');
-    if (!this.userToken) throw new AltegioError('Войдите в Altegio через форму авторизации над чатом.');
-    if (!/^[1-9]\d*$/.test(String(this.locationId))) throw new AltegioError('Выберите филиал в списке над чатом. Если список пуст, обновите список филиалов.');
+    if (!this.userToken) throw new AltegioError('Войдите в Altegio через форму слева.');
+    if (!/^[1-9]\d*$/.test(String(this.locationId))) throw new AltegioError('Выберите филиал в списке слева. Если список пуст, обновите список филиалов.');
     const services = [];
     const candidates = [];
     const finish = () => {
@@ -50,7 +48,7 @@ export class AltegioApi {
           signal, redirect: 'error',
         });
         if (!response.ok) {
-          const errors = { 401: 'Altegio: авторизация недействительна. Выйдите и войдите снова через форму над чатом.', 403: 'Altegio: нет доступа к услугам филиала.', 404: 'Altegio: филиал не найден.', 429: 'Altegio: превышен лимит запросов. Повторите позже.' };
+          const errors = { 401: 'Altegio: авторизация недействительна. Выйдите и войдите снова через форму слева.', 403: 'Altegio: нет доступа к услугам филиала.', 404: 'Altegio: филиал не найден.', 429: 'Altegio: превышен лимит запросов. Повторите позже.' };
           throw new AltegioError(errors[response.status] || 'Altegio временно недоступен.');
         }
         body = await response.json();

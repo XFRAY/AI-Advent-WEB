@@ -26,16 +26,16 @@ test('login changes credentials of actual MCP child; status and logout never exp
   assert.equal(login.status, 200); assert.equal(login.data.authenticated, true);
   assert.deepEqual((await req('GET', null, '/api/messages')).data.messages, []);
   assert.equal(mcp.client, null);
-  const output = await mcp.callTool('altegio_list_services', {});
+  const output = await mcp.callTool('pipeline_search', {});
   assert.notEqual(mcp.client, oldClient);
-  assert.equal(output.structuredContent.services[0].title, 'Авторизованная услуга');
+  assert.equal(output.structuredContent.items[0].title, 'Авторизованная услуга');
   assert.equal((await req('GET')).data.authenticated, true);
   await req('POST', { message: 'New history' }, '/api/chat');
   assert.equal((await req('DELETE')).data.authenticated, false);
   assert.equal(mcp.env.ALTEGIO_USER_TOKEN, undefined);
   assert.equal(mcp.client, null);
   assert.deepEqual((await req('GET', null, '/api/messages')).data.messages, []);
-  const afterLogout = await mcp.callTool('altegio_list_services', {});
+  const afterLogout = await mcp.callTool('pipeline_search', {});
   assert.equal(afterLogout.isError, true);
   assert.match(afterLogout.content[0].text, /Войдите/);
 });
@@ -95,8 +95,6 @@ test('multiple locations require selection; switching resets MCP and history', a
   assert.equal(mcp.env.ALTEGIO_LOCATION_ID, '456');
   assert.equal(mcp.client, null);
   assert.deepEqual((await req('GET', null, '/api/messages')).data.messages, []);
-  await req('POST', {}, '/api/altegio/locations/refresh');
-  assert.equal((await req('GET')).data.locationId, '456');
   assert.equal((await req('DELETE')).data.locations.length, 0);
   assert.equal((await req('POST', { locationId: '123' }, '/api/altegio/location')).status, 401);
 });
@@ -108,7 +106,7 @@ test('no accessible locations never uses previous environment location', async t
   assert.equal(login.data.locationId, null);
   assert.equal(mcp.env.ALTEGIO_LOCATION_ID, undefined);
 });
-test('failed locations load keeps login and can be retried without credentials', async t => {
+test('failed locations load keeps login and is retried on the next login', async t => {
   let calls = 0;
   const { req } = await start(t, { authFetch: validAuth, locationsFetch: async () => ++calls === 1 ? new Response('SECRET', { status: 500 }) : Response.json({ data: [{ id: 789, title: 'Recovered' }] }) });
   const login = await req('POST', { login: 'user', password: 'password' });
@@ -116,17 +114,8 @@ test('failed locations load keeps login and can be retried without credentials',
   assert.equal(login.data.locationId, null);
   assert.ok(login.data.locationsError);
   assert.doesNotMatch(login.data.locationsError, /SECRET/);
-  const refreshed = await req('POST', {}, '/api/altegio/locations/refresh');
-  assert.equal(refreshed.data.locationId, '789');
-  assert.equal(refreshed.data.locationsError, null);
-});
-test('refresh removes selection when access to that branch is gone', async t => {
-  let calls = 0;
-  const { req, mcp } = await start(t, { authFetch: validAuth, locationsFetch: async () => Response.json({ data: ++calls === 1 ? [{ id: 123, title: 'Old' }] : [] }) });
-  await req('POST', { login: 'user', password: 'password' });
-  await req('POST', { message: 'Old branch' }, '/api/chat');
-  const refreshed = await req('POST', {}, '/api/altegio/locations/refresh');
-  assert.equal(refreshed.data.locationId, null);
-  assert.equal(mcp.env.ALTEGIO_LOCATION_ID, undefined);
-  assert.deepEqual((await req('GET', null, '/api/messages')).data.messages, []);
+  assert.equal((await req('POST', {}, '/api/altegio/locations/refresh')).status, 404);
+  const retried = await req('POST', { login: 'user', password: 'password' });
+  assert.equal(retried.data.locationId, '789');
+  assert.equal(retried.data.locationsError, null);
 });

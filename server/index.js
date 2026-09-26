@@ -4,15 +4,15 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import express from 'express';
 import { AgentInputError, AgentConfigurationError, LlmAgent } from './LlmAgent.js';
 import { McpConnection } from './mcp/client.js';
+import { runPipeline } from './pipeline/runner.js';
+import { defaultReportsDir, reportFilePattern } from './pipeline/files.js';
 import { authorizeAltegio, listAltegioLocations, AltegioAuthError } from './AltegioAuth.js';
 
 export function createApp({ agent, mcp = new McpConnection(), authFetch = globalThis.fetch, locationsFetch = globalThis.fetch } = {}) {
   agent ??= new LlmAgent({ apiKey: process.env.OPENAI_API_KEY, model: process.env.OPENAI_MODEL, mcp });
   const app = express();
-  let background = false;
-  let recoveryTimer;
+  let started = false;
   let closing = false;
-  let starting = false;
   let messages = [];
   let busy = false;
   let authenticated = Boolean(mcp.env?.ALTEGIO_USER_TOKEN);
@@ -30,7 +30,7 @@ export function createApp({ agent, mcp = new McpConnection(), authFetch = global
       locationsLoaded = true;
       locationsError = null;
     } catch (error) {
-      locationsError = error instanceof AltegioAuthError ? error.message : 'Не удалось загрузить филиалы.';
+      locationsError = error instanceof AltegioAuthError ? error.message : 'Не удалось загрузить филиалы. Выйдите и войдите снова.';
     }
   }
   app.use('/api', (req, res, next) => {
@@ -64,7 +64,6 @@ export function createApp({ agent, mcp = new McpConnection(), authFetch = global
     if (busy) return res.status(409).json({ error: 'Дождитесь завершения текущего запроса.' });
     busy = true;
     try {
-      if (mcp.hasScheduler) await mcp.callTool('summary_schedule_pause', {});
       await mcp.setUserToken(null);
       await mcp.setLocationId(null);
       locations = []; locationsLoaded = false; locationsError = null;
@@ -72,13 +71,6 @@ export function createApp({ agent, mcp = new McpConnection(), authFetch = global
       messages = [];
       res.json(authStatus());
     } catch { res.status(502).json({ error: 'Не удалось закрыть подключение MCP. Повторите выход.' }); }
-    finally { busy = false; }
-  });
-  app.post('/api/altegio/locations/refresh', async (_req, res) => {
-    if (!authenticated) return res.status(401).json({ error: 'Сначала войдите в Altegio.' });
-    if (busy) return res.status(409).json({ error: 'Дождитесь завершения текущего запроса.' });
-    busy = true;
-    try { await refreshLocations(); res.json(authStatus()); }
     finally { busy = false; }
   });
   app.post('/api/altegio/location', async (req, res) => {
@@ -93,36 +85,27 @@ export function createApp({ agent, mcp = new McpConnection(), authFetch = global
     } catch { res.status(502).json({ error: 'Не удалось переключить филиал. Повторите попытку.' }); }
     finally { busy = false; }
   });
-  const summaryRoutes = [
-    ['get', '/api/summary/status', 'summary_schedule_status'],
-    ['get', '/api/summary/results', 'summary_results'],
-    ['post', '/api/summary/schedule', 'summary_schedule_set'],
-    ['post', '/api/summary/pause', 'summary_schedule_pause'],
-    ['post', '/api/summary/run', 'summary_run_now'],
-  ];
-  for (const [method, path, tool] of summaryRoutes) app[method](path, async (req, res) => {
+  app.post('/api/pipeline/run', async (req, res) => {
     if (busy || closing) return res.status(409).json({ error: 'Дождитесь завершения текущего запроса.' });
+    const { query, limit, format, name } = req.body ?? {};
+    if ((query !== undefined && (typeof query !== 'string' || query.length > 200)) || (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 100))
+      || (format !== undefined && !['md', 'json'].includes(format)) || (name !== undefined && (typeof name !== 'string' || name.length > 80))) return res.status(400).json({ error: 'Некорректные параметры пайплайна.' });
     busy = true;
-    try {
-      const args = method === 'get' ? (tool === 'summary_results' && req.query.limit !== undefined ? { limit: Number(req.query.limit) } : {}) : req.body ?? {};
-      const output = await mcp.callTool(tool, args);
-      const result = output.structuredContent ?? JSON.parse(output.content.find(item => item.type === 'text')?.text || '{}');
-      res.status(output.isError ? 422 : 200).json(result);
-    } catch { res.status(502).json({ error: 'Не удалось выполнить команду сводки. Проверьте параметры и подключение MCP.' }); }
+    try { res.json(await runPipeline(mcp, { query: query?.trim(), limit, format, name: name?.trim() })); }
+    catch { res.status(502).json({ error: 'Не удалось выполнить пайплайн. Проверьте подключение MCP.' }); }
     finally { busy = false; }
+  });
+  // Read-only access to saved reports so the chat can link to them.
+  app.get('/api/reports/:file', (req, res) => {
+    const { file } = req.params;
+    if (!reportFilePattern.test(file)) return res.status(400).json({ error: 'Некорректное имя отчёта.' });
+    res.type(file.endsWith('.json') ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8');
+    res.sendFile(file, { root: defaultReportsDir(mcp.env), dotfiles: 'deny' }, error => {
+      if (error && !res.headersSent) res.status(404).json({ error: 'Отчёт не найден.' });
+    });
   });
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
   app.get('/api/messages', (_req, res) => res.json({ messages }));
-  app.delete('/api/history', async (_req, res) => {
-    if (busy || closing) return res.status(409).json({ error: 'Дождитесь завершения текущего запроса.' });
-    busy = true;
-    try {
-      const summary = await mcp.clearSummaryHistory();
-      messages = [];
-      res.json({ messages, summary });
-    } catch { res.status(502).json({ error: 'Не удалось очистить историю. Переписка сохранена, повторите попытку.' }); }
-    finally { busy = false; }
-  });
   app.delete('/api/messages', (_req, res) => {
     if (busy) return res.status(409).json({ error: 'Дождитесь завершения ответа.' });
     messages = [];
@@ -149,34 +132,27 @@ export function createApp({ agent, mcp = new McpConnection(), authFetch = global
   app.use(express.static(fileURLToPath(new URL('../dist', import.meta.url))));
   app.use((error, _req, res, _next) => res.status(error.type === 'entity.too.large' ? 413 : 400).json({ error: 'Некорректный запрос.' }));
   app.locals.start = async () => {
-    if (background) return;
-    background = true;
+    if (started) return;
+    started = true;
     if (authenticated) {
       await refreshLocations();
       if (!locationsLoaded) await mcp.setLocationId(null);
     }
     await mcp.connect();
-    recoveryTimer = setInterval(async () => {
-      if (closing || busy || starting || mcp.client) return;
-      starting = true;
-      try { await mcp.connect(); } catch { /* Retry next tick; API exposes availability errors. */ }
-      finally { starting = false; }
-    }, 1000);
-    recoveryTimer.unref();
   };
-  app.locals.close = async () => { closing = true; clearInterval(recoveryTimer); await mcp.close(); };
+  app.locals.close = async () => { closing = true; await mcp.close(); };
   return app;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const app = createApp();
   await app.locals.start();
   const port = Number(process.env.PORT || 3001);
-  const server = app.listen(port, '127.0.0.1', () => console.log(`День 18 · MCP Altegio: http://127.0.0.1:${port}`));
+  const server = app.listen(port, '127.0.0.1', () => console.log(`День 19 · Пайплайн MCP: http://127.0.0.1:${port}`));
   let stopping = false;
   const stop = async () => {
     if (stopping) return;
     stopping = true;
-    const deadline = setTimeout(() => process.exit(1), 65_000);
+    const deadline = setTimeout(() => process.exit(1), 5000);
     deadline.unref();
     server.close();
     await app.locals.close();

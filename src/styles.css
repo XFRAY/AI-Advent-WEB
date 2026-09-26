@@ -9,3 +9,7 @@ html, body, #root { height: 100%; overflow: hidden; }
 @media (max-width: 899px) {
   .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 42%) minmax(0, 1fr); gap: 12px; }
 }
+
+.bubble { padding: 10px 14px; border-radius: 18px; line-height: 1.5; }
+.bubble-user { background: #176b57; color: #fff; border-bottom-right-radius: 6px; }
+.bubble-agent { background: #eef2ef; color: #1c2420; border-bottom-left-radius: 6px; }

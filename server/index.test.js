@@ -4,6 +4,9 @@ import { createApp } from './index.js';
 import { LlmAgent } from './LlmAgent.js';
 import { McpConnection } from './mcp/client.js';
 import { fileURLToPath } from 'node:url';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 async function start(t, agent, mcp) {
   const app = createApp({ agent, mcp });
   const server = app.listen(0, '127.0.0.1');
@@ -13,20 +16,23 @@ async function start(t, agent, mcp) {
   return (path, method = 'GET', body) => fetch(url + path, { method, headers: { 'Content-Type': 'application/json' }, ...(body !== undefined && { body: JSON.stringify(body) }) });
 }
 test('HTTP → agent → stdio MCP → mocked HTTP → model, history and clear', async t => {
-  const mcp = new McpConnection({ serverPath: fileURLToPath(new URL('./testing/mcp-fixture.js', import.meta.url)) });
+  const dir = await mkdtemp(join(tmpdir(), 'index-reports-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const mcp = new McpConnection({ serverPath: fileURLToPath(new URL('./testing/mcp-fixture.js', import.meta.url)), env: { REPORTS_DIR: dir } });
   let rounds = 0;
   const client = { responses: { create: async request => {
     rounds++;
-    if (rounds === 1) return { output: [{ type: 'function_call', name: 'altegio_list_services', arguments: '{}', call_id: 'one' }] };
+    if (rounds === 1) return { output: [{ type: 'function_call', name: 'services_report', arguments: '{}', call_id: 'one' }] };
     const output = JSON.parse(request.input.find(item => item.type === 'function_call_output').output);
-    return { output: [], output_text: `${output.services[0].title}: ${output.services[0].price_min}–${output.services[0].price_max}` };
+    return { output: [], output_text: `${output.report.items[0].title}: ${output.report.items[0].price_min}–${output.report.items[0].price_max}` };
   } } };
   const req = await start(t, new LlmAgent({ mcp, client }), mcp);
   const response = await req('/api/chat', 'POST', { message: 'Какие услуги?' });
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.match(body.answer, /Тестовая стрижка: 50–70/);
-  assert.equal(body.toolCalls[0].status, 'success'); assert.equal(body.messages.length, 2);
+  assert.deepEqual(body.toolCalls.map(call => call.status), ['success', 'success', 'success']); assert.equal(body.messages.length, 2);
+  assert.deepEqual(await readdir(dir), [body.toolCalls[2].result.file]);
   assert.doesNotMatch(JSON.stringify(body), /private-token|Authorization|partnerToken|userToken/);
   assert.deepEqual((await (await req('/api/messages')).json()).messages, body.messages);
   assert.deepEqual((await (await req('/api/messages', 'DELETE')).json()).messages, []);

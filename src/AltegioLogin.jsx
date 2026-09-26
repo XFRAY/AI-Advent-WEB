@@ -35,15 +35,6 @@ export default function AltegioLogin({ busy, onBusyChange, onSessionChange }) {
     catch (e) { setError(e.message); }
     finally { setPending(false); onBusyChange(false); }
   }
-  async function refreshLocations() {
-    setPending(true); onBusyChange(true); setError('');
-    try {
-      const next = await authRequest('POST', {}, '/api/altegio/locations/refresh');
-      if (next.locationId !== status.locationId) onSessionChange();
-      setStatus(next);
-    } catch (e) { setError(e.message); }
-    finally { setPending(false); onBusyChange(false); }
-  }
   return <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 }, flexShrink: 0,  overscrollBehavior: 'contain' }}>
     <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 2 }}>
       <Typography component="h2" variant="h6">Подключение Altegio</Typography>
@@ -64,7 +55,6 @@ export default function AltegioLogin({ busy, onBusyChange, onSessionChange }) {
         {status.locations.map(location => <MenuItem key={location.id} value={location.id}>{location.title}{location.address ? ` · ${location.address}` : ''} (#{location.id})</MenuItem>)}
       </TextField>}
       {status.locationsLoaded && !status.locations?.length && <Alert severity="info">У аккаунта нет доступных филиалов.</Alert>}
-      <Button onClick={refreshLocations} disabled={busy || pending} sx={{ alignSelf: 'flex-start' }}>{pending ? 'Загрузка…' : 'Обновить список филиалов'}</Button>
     </Stack> : <Box component="form" onSubmit={submit}>
       <Stack direction="column" sx={{ gap: 2 }}>
         <TextField size="small" fullWidth required label="Логин Altegio" autoComplete="username" value={login} onChange={e => setLogin(e.target.value)} disabled={busy || pending} slotProps={{ htmlInput: { maxLength: 320 } }} />
