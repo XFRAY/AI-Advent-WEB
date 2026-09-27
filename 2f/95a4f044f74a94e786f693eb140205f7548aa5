@@ -1,0 +1,103 @@
+server/mcp/servers/shared.js
+  s_c6d611625f4943::t_d2c4e0d7b63090 1-26
+server/mcp/registry.js
+  s_c6d611625f4943::t_cbb5cabce50355 1-95
+server/index.test.js
+  s_c6d611625f4943::t_171d919a0f979e 4-5,19
+server/orchestration.integration.test.js
+  s_c6d611625f4943::t_27b6f3f4c1f722 1-75
+server/mcp/servers/files/files.js
+  s_c6d611625f4943::t_8e382c4f003048 1-47
+server/testing/altegio-fixture.js
+  s_c6d611625f4943::t_e8933e0d3e2110 1-11
+server/index.js
+  s_c6d611625f4943::t_f23006a007bfbe 6-7,10,87,89-90,96,122,144
+server/LlmAgent.test.js
+  s_c6d611625f4943::t_35fa41a3dc3227 4-5,7-10,12-18,20-21,24-49,52,55-61,63-66,68-70,72-73,75-81,83,85-86,89-92,94-96,98-99
+server/mcp/servers/altegio/api.test.js
+  s_c6d611625f4943::t_0217a8f610af64 1-2,4,8-79,98
+  s_c6d611625f4943::t_cc1972f0fb0183 3,5-7,80-97
+server/mcp/servers/currency/nbp.test.js
+  s_c6d611625f4943::t_6c0d82aa574606 1-26
+server/mcp/servers/analytics/server.js
+  s_c6d611625f4943::t_f6287164f3111f 1-9
+server/mcp/servers/analytics/stats.test.js
+  s_c6d611625f4943::t_6c0d82aa574606 1-26
+server/mcp/servers/files/tools.js
+  s_c6d611625f4943::t_8e382c4f003048 1-22
+server/mcp/connection.js
+  s_c6d611625f4943::t_c55a17fbb56308 4-59,66
+server/auth.test.js
+  s_c6d611625f4943::t_171d919a0f979e 4,7,23,28-31,36,38,96
+server/mcp/registry.test.js
+  s_c6d611625f4943::t_c8de8277e278a6 1-76
+server/mcp/servers/currency/server.js
+  s_c6d611625f4943::t_f6287164f3111f 1-9
+server/testing/servers.js
+  s_c6d611625f4943::t_e8933e0d3e2110 1-10
+server/mcp/servers/analytics/stats.js
+  s_c6d611625f4943::t_f6287164f3111f 1-27
+server/mcp/servers/analytics/tools.js
+  s_c6d611625f4943::t_f6287164f3111f 1-13
+package.json
+  s_c6d611625f4943::t_0f3f9ce5be8949 2,14
+server/mcp/servers/currency/nbp.js
+  s_c6d611625f4943::t_f6287164f3111f 1-37
+server/mcp/servers/altegio/api.js
+  s_c6d611625f4943::t_2f6258e0c7acce 1-13,22-28,30,53-112
+  s_c6d611625f4943::t_42f77b0dadb9a1 14-21,29,31-52
+.env.example
+  s_c6d611625f4943::t_0f3f9ce5be8949 6
+server/LlmAgent.js
+  s_c6d611625f4943::t_4ec6321ae11fe0 2,7-24,26-27,39-44,47,49-50,53-54,60,65,68-74,76-80,82-83,85-86,89
+server/mcp/servers/files/files.test.js
+  s_c6d611625f4943::t_6c0d82aa574606 1-30
+server/mcp/servers/currency/tools.js
+  s_c6d611625f4943::t_f6287164f3111f 1-13
+server/mcp/servers/altegio/tools.js
+  s_c6d611625f4943::t_56f0efc6e94a59 1-3,5-8
+  s_c6d611625f4943::t_b0c9b69310a397 4
+server/mcp/servers/files/server.js
+  s_c6d611625f4943::t_8e382c4f003048 1-13
+server/testing/currency-fixture.js
+  s_c6d611625f4943::t_e8933e0d3e2110 1-10
+index.html
+  s_c6d611625f4943::t_0f3f9ce5be8949 8,15
+server/mcp/servers/altegio/server.js
+  s_c6d611625f4943::t_56f0efc6e94a59 1-9
+server/testing/auth-mcp-fixture.js
+  s_c6d611625f4943::t_e8933e0d3e2110 1-3,8
+src/main.jsx
+  s_c6d611625f4943::t_0f3f9ce5be8949 6-8,25,37,47,52-53,61-62,67,69,72-74,88
+README.md
+  s_c6d611625f4943::t_8a3fd770834689 81
+  s_c6d611625f4943::t_b0c9b69310a397 17-22
+  s_c6d611625f4943::t_91afd1cf885132 1,3-6,8-16,23-26,29-32,35-54,70-80,82-92,99,102-112,115
+src/McpServers.jsx
+  s_c6d611625f4943::t_6cc634898ddba8 1-35
+package-lock.json
+  s_c6d611625f4943::t_aee5aa318607f1 2,8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2f95a4f044f74a94e786f693eb140205f7548aa5",
+  "prompts": {},
+  "sessions": {
+    "s_c6d611625f4943": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b6cc53d1-ba96-412a-ad6b-91e72809a5c7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Anton Taklionak <anton.taklionak@viber.com>",
+      "token_usage": {
+        "input_tokens": 296,
+        "output_tokens": 202612,
+        "cache_creation_tokens": 711839,
+        "cache_read_tokens": 19328665
+      },
+      "billing_source": "subscription"
+    }
+  }
+}
