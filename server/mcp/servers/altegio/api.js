@@ -1,16 +1,24 @@
 import { z } from 'zod';
-
+import { ToolError } from '../shared.js';
 const inputShape = {
   query: z.string().trim().max(200).optional().describe('Буквальный поиск по названию без учёта регистра. Названия могут быть на другом языке. Если совпадений нет, searchMode=catalog_fallback возвращает кандидатов для отбора по смыслу, а не точные совпадения. Без параметра — каталог.'),
   limit: z.number().int().min(1).max(100).default(20).describe('Максимальное число услуг в ответе: 1–100, по умолчанию 20.'),
 };
 export const inputSchema = z.object(inputShape).strict();
-export class AltegioError extends Error {}
+export class AltegioError extends ToolError {}
 const numberOrNull = (value) => {
   if (value === null || value === undefined || value === '') return null;
   const number = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN;
   return Number.isFinite(number) && number >= 0 ? number : null;
 };
+// Altegio exposes only the location currency symbol (currency_short_title, e.g. "zł"), not an ISO code.
+const currencySymbols = { 'zł': 'PLN', 'zl': 'PLN', '€': 'EUR', '$': 'USD', '£': 'GBP', '₴': 'UAH', 'грн': 'UAH', 'грн.': 'UAH', 'kč': 'CZK', 'ft': 'HUF', 'lei': 'RON', '₸': 'KZT', '₾': 'GEL', '֏': 'AMD', '₽': 'RUB', 'руб': 'RUB', 'руб.': 'RUB', 'br': 'BYN', 'chf': 'CHF', 'kr': null };
+export function currencyCode(symbol) {
+  if (typeof symbol !== 'string' || !symbol.trim()) return null;
+  const value = symbol.trim().toLocaleLowerCase();
+  if (Object.hasOwn(currencySymbols, value)) return currencySymbols[value];
+  return /^[a-z]{3}$/.test(value) ? value.toUpperCase() : null;
+}
 
 export class AltegioApi {
   constructor({ partnerToken = process.env.ALTEGIO_PARTNER_TOKEN, userToken = process.env.ALTEGIO_USER_TOKEN,
@@ -18,7 +26,30 @@ export class AltegioApi {
     Object.assign(this, { partnerToken, userToken, locationId, fetchImpl, timeoutMs, pageSize });
   }
 
+  // Services without their own currency get the location currency.
   async listServices(args) {
+    const result = await this.searchServices(args);
+    if (!result.services.some(service => service.currency === null)) return result;
+    const currency = await this.locationCurrency();
+    if (!currency) return result;
+    return { ...result, services: result.services.map(service => ({ ...service, currency: service.currency ?? currency })) };
+  }
+  // Never fails the search: an unknown currency stays null. Cached per process; the process restarts on location change.
+  async locationCurrency() {
+    if (this.currency) return this.currency;
+    try {
+      const response = await this.fetchImpl(new URL(`https://api.alteg.io/api/v1/company/${this.locationId}`), {
+        headers: { Authorization: `Bearer ${this.partnerToken}, User ${this.userToken}`, Accept: 'application/vnd.api.v2+json' },
+        signal: AbortSignal.timeout(this.timeoutMs), redirect: 'error',
+      });
+      if (!response.ok) return null;
+      const body = await response.json();
+      this.currency = currencyCode(body?.data?.currency_short_title);
+      return this.currency;
+    } catch { return null; }
+  }
+
+  async searchServices(args) {
     const { query = '', limit } = inputSchema.parse(args);
     if (!this.partnerToken) throw new AltegioError('Настройте ALTEGIO_PARTNER_TOKEN на сервере.');
     if (!this.userToken) throw new AltegioError('Войдите в Altegio через форму слева.');

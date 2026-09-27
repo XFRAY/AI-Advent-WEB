@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { Alert, Box, Button, Chip, CircularProgress, Container, CssBaseline, Link, Paper, Stack, TextField, ThemeProvider, Typography, createTheme } from '@mui/material';
 import './styles.css';
 import AltegioLogin from './AltegioLogin.jsx';
+import McpServers, { serverColors } from './McpServers.jsx';
+
+const examples = ['Найди стрижки, посчитай статистику цен, переведи цены в EUR, сохрани отчёт и покажи список отчётов', 'Сколько стоит окрашивание в долларах?', 'Покажи последний сохранённый отчёт'];
 
 const theme = createTheme({ palette: { primary: { main: '#176b57' }, background: { default: '#f4f6f3' } }, typography: { fontFamily: 'Inter, system-ui, sans-serif' }, shape: { borderRadius: 16 } });
 async function request(path, options = {}) {
@@ -19,6 +22,7 @@ function App() {
   const busy = chatBusy || authBusy;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
   const messageList = useRef(null);
   useEffect(() => { request('/api/messages').then(data => setMessages(data.messages)).catch(e => setError(e.message)).finally(() => setLoading(false)); }, []);
   useEffect(() => { const list = messageList.current; if (list && (messages.length || chatBusy)) list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' }); }, [messages, chatBusy]);
@@ -30,7 +34,7 @@ function App() {
       const data = await request('/api/chat', { method: 'POST', body: JSON.stringify({ message }) });
       setMessages(data.messages); setMessage('');
     } catch (e) { setError(e.message); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setRefreshKey(key => key + 1); }
   }
   async function clear() {
     setBusy(true); setError('');
@@ -40,12 +44,13 @@ function App() {
   }
   return <Container maxWidth="xl" className="app-shell" sx={{ height: '100dvh', minHeight: 'min(560px, 100dvh)', overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 1.5, py: { xs: 1.5, sm: 2 } }}>
     <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between", gap: 2, flexShrink: 0 }}>
-      <Box><Typography variant="overline" color="primary">AI ADVENT / 19</Typography><Typography component="h1" variant="h5" fontWeight={750}>Композиция MCP-инструментов</Typography></Box>
+      <Box><Typography variant="overline" color="primary">AI ADVENT / 20</Typography><Typography component="h1" variant="h5" fontWeight={750}>Оркестрация MCP</Typography></Box>
       <Button variant="outlined" onClick={clear} disabled={busy || loading}>Очистить чат</Button>
     </Stack>
     <Box className="workspace">
     <Stack className="settings-pane" spacing={1.5}>
-    <AltegioLogin busy={busy} onBusyChange={setAuthBusy} onSessionChange={() => { setMessages([]); setError(''); }} />
+    <AltegioLogin busy={busy} onBusyChange={setAuthBusy} onSessionChange={() => { setMessages([]); setError(''); setRefreshKey(key => key + 1); }} />
+    <McpServers refreshKey={refreshKey} busy={busy} />
     </Stack>
     <Box className="chat-pane">
     <Paper ref={messageList} role="log" aria-label="История сообщений" variant="outlined" sx={{ p: { xs: 1.5, sm: 2 }, flex: 1, minHeight: 0, overflowY: 'auto', overflowWrap: 'anywhere', overscrollBehavior: 'contain' }}>
@@ -53,15 +58,20 @@ function App() {
         {loading && <CircularProgress size={22} aria-label="Загрузка истории" />}
         {!loading && !messages.length && <Box sx={{ py: 2, textAlign: 'center' }}>
           <Typography variant="h6">С чего начнём?</Typography>
+          <Typography color="text.secondary" sx={{ mb: 1.5 }}>Агент сам выберет инструменты нужных MCP-серверов и вызовет их по порядку.</Typography>
+          <Stack sx={{ gap: 1, alignItems: 'center' }}>{examples.map(text => <Chip key={text} label={text} onClick={() => setMessage(text)} disabled={busy} sx={{ height: 'auto', py: 0.75, '& .MuiChip-label': { whiteSpace: 'normal' } }} />)}</Stack>
         </Box>}
         {messages.map(item => <Box key={item.id} sx={{ alignSelf: item.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: { xs: '92%', sm: '80%' }, display: 'flex', flexDirection: 'column', alignItems: item.role === 'user' ? 'flex-end' : 'flex-start' }}>
           <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ px: 1 }}>{item.role === 'user' ? 'ВЫ' : 'АГЕНТ'}</Typography>
           <Typography className={`bubble bubble-${item.role}`} sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', mt: 0.5 }}>{item.text}</Typography>
-          {item.toolCalls?.filter(call => call.name === 'pipeline_save_to_file' && call.status === 'success' && call.result?.file).map(call =>
+          {item.toolCalls?.filter(call => call.name === 'files_save_report' && call.status === 'success' && call.result?.file).map(call =>
             <Link key={call.result.file} href={`/api/reports/${encodeURIComponent(call.result.file)}`} target="_blank" rel="noopener" sx={{ display: 'inline-block', mt: 1, fontWeight: 600 }}>Открыть отчёт {call.result.file}</Link>)}
+          {item.toolCalls?.length > 0 && <Typography variant="caption" color="text.secondary" sx={{ mt: 1, px: 1 }}>Маршрут: {item.toolCalls.map(call => call.server ?? '?').join(' → ')}</Typography>}
           {item.toolCalls?.map((call, index) => <Box component="details" key={index} sx={{ mt: 1, alignSelf: 'stretch', border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1.5 }}>
             <Box component="summary" sx={{ cursor: 'pointer', overflowWrap: 'anywhere' }}>
-              <Chip size="small" label={{ success: 'MCP · выполнено', error: 'MCP · ошибка', skipped: 'MCP · пропущен' }[call.status]} color={{ success: 'success', error: 'error', skipped: 'default' }[call.status]} sx={{ mr: 1 }} />{call.name}
+              <Typography component="span" variant="body2" fontWeight={700} sx={{ mr: 1 }}>{call.step ?? index + 1}.</Typography>
+              <Chip size="small" label={call.server ?? 'не найден'} color={serverColors[call.server] ?? 'default'} sx={{ mr: 1 }} />
+              <Chip size="small" variant="outlined" label={call.status === 'success' ? 'выполнено' : 'ошибка'} color={call.status === 'success' ? 'success' : 'error'} sx={{ mr: 1 }} />{call.name}
             </Box>
             <Typography variant="caption" component="p" sx={{ mt: 2 }}>Параметры</Typography><pre>{JSON.stringify(call.arguments, null, 2)}</pre>
             <Typography variant="caption" component="p">{call.status === 'success' ? 'Результат' : 'Ошибка'}</Typography><pre>{JSON.stringify(call.result, null, 2)}</pre>
@@ -75,7 +85,7 @@ function App() {
       <TextField fullWidth multiline maxRows={4} label="Сообщение агенту" value={message} onChange={e => setMessage(e.target.value)} disabled={busy || loading} slotProps={{ htmlInput: { maxLength: 10_000 } }} />
       <Button type="submit" variant="contained" disabled={busy || loading || !message.trim()} sx={{ px: { xs: 1.5, sm: 3 }, minHeight: 56 }}>Отправить</Button>
     </Stack>
-    <Typography variant="caption" color="text.secondary" component="p" sx={{ flexShrink: 0 }}>Отчёты сохраняются в data/reports. История чата — до перезапуска сервера.</Typography>
+    <Typography variant="caption" color="text.secondary" component="p" sx={{ flexShrink: 0 }}>Отчёты сервера files сохраняются в data/reports. История чата — до перезапуска сервера.</Typography>
     </Box>
     </Box>
   </Container>;

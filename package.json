@@ -1,5 +1,5 @@
 {
-  "name": "ai-advent-day-19-altegio",
+  "name": "ai-advent-day-20-orchestration",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "start": "node server/index.js",
     "test": "node --test",
-    "mcp:list": "node server/mcp/client.js"
+    "mcp:list": "node server/mcp/registry.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

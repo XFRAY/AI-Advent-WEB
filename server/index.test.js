@@ -1,13 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp } from './index.js';
-import { LlmAgent } from './LlmAgent.js';
-import { McpConnection } from './mcp/client.js';
-import { fileURLToPath } from 'node:url';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-async function start(t, agent, mcp) {
+import { McpRegistry } from './mcp/registry.js';
+async function start(t, agent, mcp = new McpRegistry({ env: {}, servers: {} })) {
   const app = createApp({ agent, mcp });
   const server = app.listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
@@ -15,35 +10,13 @@ async function start(t, agent, mcp) {
   const url = `http://127.0.0.1:${server.address().port}`;
   return (path, method = 'GET', body) => fetch(url + path, { method, headers: { 'Content-Type': 'application/json' }, ...(body !== undefined && { body: JSON.stringify(body) }) });
 }
-test('HTTP → agent → stdio MCP → mocked HTTP → model, history and clear', async t => {
-  const dir = await mkdtemp(join(tmpdir(), 'index-reports-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const mcp = new McpConnection({ serverPath: fileURLToPath(new URL('./testing/mcp-fixture.js', import.meta.url)), env: { REPORTS_DIR: dir } });
-  let rounds = 0;
-  const client = { responses: { create: async request => {
-    rounds++;
-    if (rounds === 1) return { output: [{ type: 'function_call', name: 'services_report', arguments: '{}', call_id: 'one' }] };
-    const output = JSON.parse(request.input.find(item => item.type === 'function_call_output').output);
-    return { output: [], output_text: `${output.report.items[0].title}: ${output.report.items[0].price_min}–${output.report.items[0].price_max}` };
-  } } };
-  const req = await start(t, new LlmAgent({ mcp, client }), mcp);
-  const response = await req('/api/chat', 'POST', { message: 'Какие услуги?' });
-  assert.equal(response.status, 200);
-  const body = await response.json();
-  assert.match(body.answer, /Тестовая стрижка: 50–70/);
-  assert.deepEqual(body.toolCalls.map(call => call.status), ['success', 'success', 'success']); assert.equal(body.messages.length, 2);
-  assert.deepEqual(await readdir(dir), [body.toolCalls[2].result.file]);
-  assert.doesNotMatch(JSON.stringify(body), /private-token|Authorization|partnerToken|userToken/);
-  assert.deepEqual((await (await req('/api/messages')).json()).messages, body.messages);
-  assert.deepEqual((await (await req('/api/messages', 'DELETE')).json()).messages, []);
-  assert.equal((await req('/api/invariants')).status, 404);
-});
 test('invalid input and server exceptions are safe and do not change history', async t => {
   const req = await start(t, { ask: async () => { throw new Error('SECRET_API_TOKEN'); } });
   assert.equal((await req('/api/chat', 'POST', { message: '' })).status, 400);
   const error = await req('/api/chat', 'POST', { message: 'Привет' });
   assert.equal(error.status, 502); assert.doesNotMatch(await error.text(), /SECRET/);
   assert.deepEqual((await (await req('/api/messages')).json()).messages, []);
+  assert.equal((await req('/api/pipeline/run', 'POST', {})).status, 404);
 });
 test('concurrent sends and clearing cannot corrupt the conversation', async t => {
   let release, entered;

@@ -3,12 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import express from 'express';
 import { AgentInputError, AgentConfigurationError, LlmAgent } from './LlmAgent.js';
-import { McpConnection } from './mcp/client.js';
-import { runPipeline } from './pipeline/runner.js';
-import { defaultReportsDir, reportFilePattern } from './pipeline/files.js';
+import { McpRegistry } from './mcp/registry.js';
+import { defaultReportsDir, reportFilePattern } from './mcp/servers/files/files.js';
 import { authorizeAltegio, listAltegioLocations, AltegioAuthError } from './AltegioAuth.js';
 
-export function createApp({ agent, mcp = new McpConnection(), authFetch = globalThis.fetch, locationsFetch = globalThis.fetch } = {}) {
+export function createApp({ agent, mcp = new McpRegistry(), authFetch = globalThis.fetch, locationsFetch = globalThis.fetch } = {}) {
   agent ??= new LlmAgent({ apiKey: process.env.OPENAI_API_KEY, model: process.env.OPENAI_MODEL, mcp });
   const app = express();
   let started = false;
@@ -85,21 +84,16 @@ export function createApp({ agent, mcp = new McpConnection(), authFetch = global
     } catch { res.status(502).json({ error: 'Не удалось переключить филиал. Повторите попытку.' }); }
     finally { busy = false; }
   });
-  app.post('/api/pipeline/run', async (req, res) => {
+  app.get('/api/mcp/servers', async (_req, res) => {
     if (busy || closing) return res.status(409).json({ error: 'Дождитесь завершения текущего запроса.' });
-    const { query, limit, format, name } = req.body ?? {};
-    if ((query !== undefined && (typeof query !== 'string' || query.length > 200)) || (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 100))
-      || (format !== undefined && !['md', 'json'].includes(format)) || (name !== undefined && (typeof name !== 'string' || name.length > 80))) return res.status(400).json({ error: 'Некорректные параметры пайплайна.' });
-    busy = true;
-    try { res.json(await runPipeline(mcp, { query: query?.trim(), limit, format, name: name?.trim() })); }
-    catch { res.status(502).json({ error: 'Не удалось выполнить пайплайн. Проверьте подключение MCP.' }); }
-    finally { busy = false; }
+    try { res.json({ servers: await mcp.status() }); }
+    catch { res.status(502).json({ error: 'Не удалось получить состояние MCP-серверов.' }); }
   });
   // Read-only access to saved reports so the chat can link to them.
   app.get('/api/reports/:file', (req, res) => {
     const { file } = req.params;
     if (!reportFilePattern.test(file)) return res.status(400).json({ error: 'Некорректное имя отчёта.' });
-    res.type(file.endsWith('.json') ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8');
+    res.type('text/plain; charset=utf-8');
     res.sendFile(file, { root: defaultReportsDir(mcp.env), dotfiles: 'deny' }, error => {
       if (error && !res.headersSent) res.status(404).json({ error: 'Отчёт не найден.' });
     });
@@ -125,7 +119,7 @@ export function createApp({ agent, mcp = new McpConnection(), authFetch = global
     } catch (error) {
       const status = error instanceof AgentInputError ? 400 : error instanceof AgentConfigurationError ? 503 : 502;
       const safe = error instanceof AgentInputError || error instanceof AgentConfigurationError;
-      res.status(status).json({ error: safe ? error.message : 'Не удалось получить ответ агента. Проверьте подключение MCP и настройки OpenAI.' });
+      res.status(status).json({ error: safe ? error.message : 'Не удалось получить ответ агента. Проверьте MCP-серверы и настройки OpenAI.' });
     } finally { busy = false; }
   });
   app.use('/api', (_req, res) => res.status(404).json({ error: 'API-маршрут не найден.' }));
@@ -147,7 +141,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const app = createApp();
   await app.locals.start();
   const port = Number(process.env.PORT || 3001);
-  const server = app.listen(port, '127.0.0.1', () => console.log(`День 19 · Пайплайн MCP: http://127.0.0.1:${port}`));
+  const server = app.listen(port, '127.0.0.1', () => console.log(`День 20 · Оркестрация MCP: http://127.0.0.1:${port}`));
   let stopping = false;
   const stop = async () => {
     if (stopping) return;

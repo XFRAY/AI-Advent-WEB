@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AltegioApi, inputSchema } from './altegio.js';
+import { AltegioApi, currencyCode, inputSchema } from './api.js';
 const service = (id, title, attrs = {}) => ({ type: 'service', id: String(id), attributes: { title, ...attrs } });
-const make = (fetchImpl, extra = {}) => new AltegioApi({ partnerToken: 'secret-partner', userToken: 'secret-user', locationId: '123', fetchImpl, ...extra });
+// The location lookup (currency) is answered separately so that service tests see only catalog requests.
+const make = (fetchImpl, { company = {}, ...extra } = {}) => new AltegioApi({ partnerToken: 'secret-partner', userToken: 'secret-user', locationId: '123',
+  fetchImpl: async (url, options) => url.pathname === '/api/v1/company/123' ? json({ data: company }) : fetchImpl(url, options), ...extra });
 const json = data => new Response(JSON.stringify(data));
 
 test('validates inputs and applies default limit', () => {
@@ -75,4 +77,22 @@ test('exact matches on later pages take precedence over fallback candidates', as
   const result = await make(async () => json({ data: ++page === 1 ? [service(1, 'Manicure')] : page === 2 ? [service(2, 'Маникюр')] : [] }), { pageSize: 1 }).listServices({ query: 'маникюр' });
   assert.equal(result.searchMode, undefined);
   assert.deepEqual(result.services.map(s => s.id), ['2']);
+});
+
+test('location currency symbol is mapped to an ISO code', () => {
+  assert.deepEqual(['zł', ' ZŁ ', '€', 'грн', 'usd', 'kr', '???', '', null].map(currencyCode), ['PLN', 'PLN', 'EUR', 'UAH', 'USD', null, null, null, null]);
+});
+test('services without currency get the location currency once; own currency wins; lookup failure keeps null', async () => {
+  let lookups = 0;
+  const api = new AltegioApi({ partnerToken: 'p', userToken: 'u', locationId: '123', fetchImpl: async (url, options) => {
+    if (url.pathname === '/api/v1/company/123') { lookups++; assert.equal(options.headers.Authorization, 'Bearer p, User u'); return json({ data: { currency_short_title: 'zł', country: 'Poland' } }); }
+    return json({ data: [service(1, 'Manicure', { price_min: 120 }), service(2, 'Haircut', { price_min: 20, currency: 'EUR' })] });
+  } });
+  const first = await api.listServices({});
+  assert.deepEqual(first.services.map(item => item.currency), ['PLN', 'EUR']);
+  await api.listServices({ query: 'manicure' });
+  assert.equal(lookups, 1);
+  const failing = make(async () => json({ data: [service(1, 'Manicure')] }));
+  failing.fetchImpl = async url => url.pathname.startsWith('/api/v1/company/') ? new Response('secret-user', { status: 500 }) : json({ data: [service(1, 'Manicure')] });
+  assert.equal((await failing.listServices({})).services[0].currency, null);
 });
