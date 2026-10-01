@@ -1,0 +1,98 @@
+src/main.jsx
+  s_dfa0ee8b871528::t_e0b6fd2c2c1177 36,43,77
+  s_dfa0ee8b871528::t_cae4dbbd58345e 1,3,6-8,11,16-29,31-35,37-39,41-42,44-66,68-72,74-76,79-81,84-87
+  s_dfa0ee8b871528::t_9ec0868bc90bcf 40
+  s_dfa0ee8b871528::t_5a39f779a31259 67
+  s_dfa0ee8b871528::t_709d63050887d1 78
+  s_dfa0ee8b871528::t_6ed2466e02c0df 73
+server/indexing/parsers.test.js
+  s_dfa0ee8b871528::t_b3f8feafecd27c 1-24
+server/indexing/cli.js
+  s_dfa0ee8b871528::t_3798aee1c8fa90 1-29
+server/indexing/embeddings.js
+  s_dfa0ee8b871528::t_2a4345400c7e67 1-25
+index.html
+  s_dfa0ee8b871528::t_13646df5288999 8,15
+server/index.test.js
+  s_dfa0ee8b871528::t_24af9b0db8212b 31-32,43-44
+  s_dfa0ee8b871528::t_5a39f779a31259 33-36
+  s_dfa0ee8b871528::t_6902cf4e81e511 3-6,8-17,19-30,38-42,45-57
+corpus/articles/chunking-strategies.md
+  s_dfa0ee8b871528::t_791a258563b64b 1-31
+server/indexing/store.js
+  s_dfa0ee8b871528::t_2a4345400c7e67 1-45
+  s_dfa0ee8b871528::t_5a39f779a31259 46-54
+corpus/manifest.json
+  s_dfa0ee8b871528::t_791a258563b64b 1-9
+.env.example
+  s_dfa0ee8b871528::t_13646df5288999 3
+corpus/indexing-handbook.pdf
+  s_dfa0ee8b871528::t_b5114c0c502b7e 1-159
+server/indexing/pipeline.test.js
+  s_dfa0ee8b871528::t_d509c243ddf80c 14
+  s_dfa0ee8b871528::t_3798aee1c8fa90 10,50-58
+  s_dfa0ee8b871528::t_b3f8feafecd27c 1-9,11-13,15-49,59
+server/indexing/chunking.js
+  s_dfa0ee8b871528::t_2a4345400c7e67 1-47
+server/indexing/chunking.test.js
+  s_dfa0ee8b871528::t_b3f8feafecd27c 1-22
+server/indexing/tokenizer.js
+  s_dfa0ee8b871528::t_2a4345400c7e67 1-29
+scripts/generate-corpus-pdf.js
+  s_dfa0ee8b871528::t_791a258563b64b 1-49
+server/index.js
+  s_dfa0ee8b871528::t_3d3066e6d74169 5-7,10-12,14-15,22-23,25,34,46,48-49,51-53,55-64,71-76,78,84,87
+  s_dfa0ee8b871528::t_5a39f779a31259 8,66-69
+  s_dfa0ee8b871528::t_2b3eb5b6bf16a6 4,41
+  s_dfa0ee8b871528::t_be388438984309 26-33,36,38-40,42-44,50
+server/indexing/parsers.js
+  s_dfa0ee8b871528::t_2b3eb5b6bf16a6 51,55
+  s_dfa0ee8b871528::t_2a4345400c7e67 1-2,4-28,36-42,44-50,52-54,56
+  s_dfa0ee8b871528::t_5388d064d4b87b 3,29-35,43
+src/styles.css
+  s_dfa0ee8b871528::t_e98f18bd019b4a 4
+  s_dfa0ee8b871528::t_5a39f779a31259 5,22
+  s_dfa0ee8b871528::t_e35e7c78d393aa 1,13-15
+  s_dfa0ee8b871528::t_f3330f5b6ae4e7 3,6-12,16-21,23-30
+README.md
+  s_dfa0ee8b871528::t_7e8e7a7277275d 1,3,5,7,9-11,13,15,17-40,42-53,56,60,64,68,70,72-76,78,82-86,93,96
+server/indexing/corpus.js
+  s_dfa0ee8b871528::t_2a4345400c7e67 1-33
+server/indexing/search.js
+  s_dfa0ee8b871528::t_17d3967b0492cd 19
+  s_dfa0ee8b871528::t_2a4345400c7e67 1-18,20-24
+server/indexing/pipeline.js
+  s_dfa0ee8b871528::t_2a4345400c7e67 1-13,15-36,38,40-41
+  s_dfa0ee8b871528::t_17d3967b0492cd 14,37,39
+corpus/articles/indexing-basics.md
+  s_dfa0ee8b871528::t_791a258563b64b 1-35
+package.json
+  s_dfa0ee8b871528::t_13646df5288999 2,13-15
+  s_dfa0ee8b871528::t_8fd0a592bba26c 33-35
+  s_dfa0ee8b871528::t_3e8cc777dae193 28
+package-lock.json
+  s_dfa0ee8b871528::t_ff57d248eaab9f 2,8,21,26-28,1201-1450,1467-1489,1999-2012,2246-2268,2339-2345,2425-2434,2444-2454,2557-2572,2739-2745,2806-2863,2993-3008,3281-3303,3527-3538,4074-4108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "dd7c8db90a40701ddc0052627294c569a6f2388f",
+  "prompts": {},
+  "sessions": {
+    "s_dfa0ee8b871528": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f301-5674-74f0-819c-7f58c53c9e8c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Anton Taklionak <anton.taklionak@viber.com>",
+      "token_usage": {
+        "input_tokens": 316755,
+        "output_tokens": 58777,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 10651264
+      },
+      "billing_source": "subscription"
+    }
+  }
+}
