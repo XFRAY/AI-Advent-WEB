@@ -1,0 +1,9 @@
+{
+  "entries": [
+    { "path": "../README.md", "source": "project-readme" },
+    { "path": "articles", "source": "ai-advent-articles", "extensions": [".md"] },
+    { "path": "../server", "source": "project-code", "extensions": [".js"] },
+    { "path": "../src", "source": "project-code", "extensions": [".jsx"] },
+    { "path": "indexing-handbook.pdf", "source": "pdf-handbook" }
+  ]
+}
