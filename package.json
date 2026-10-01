@@ -1,5 +1,5 @@
 {
-  "name": "ai-advent-day-21-document-indexing",
+  "name": "ai-advent-day-22-first-rag",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -10,15 +10,13 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server/index.js",
-    "test": "node --test server/indexing/*.test.js server/index.test.js",
+    "test": "node --test server/indexing/*.test.js server/RagAgent.test.js server/index.test.js",
     "index": "node server/indexing/cli.js",
     "corpus:pdf": "node scripts/generate-corpus-pdf.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
-    "@modelcontextprotocol/sdk": "^1.30.1",
-    "@mui/icons-material": "^9.4.0",
     "@mui/material": "^9.4.0",
     "@vitejs/plugin-react": "^5.0.0",
     "concurrently": "^9.2.1",
@@ -28,8 +26,7 @@
     "pdfjs-dist": "^4.10.38",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "vite": "^7.1.5",
-    "zod": "^3.25.76"
+    "vite": "^7.1.5"
   },
   "devDependencies": {
     "supertest": "^7.1.4"

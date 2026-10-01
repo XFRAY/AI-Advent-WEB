@@ -2,8 +2,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
-const codeExtensions = new Set(['.js', '.jsx', '.mjs', '.ts', '.tsx', '.py', '.java', '.kt']);
-
 function sectionsFromBoundaries(text, boundaries, fallback) {
   if (!boundaries.length || boundaries[0].start !== 0) boundaries.unshift({ start: 0, title: fallback });
   return boundaries.map((item, index) => ({
@@ -16,12 +14,6 @@ function sectionsFromBoundaries(text, boundaries, fallback) {
 
 export function parseMarkdown(text, fallbackTitle) {
   const boundaries = [...text.matchAll(/^#{1,6}\s+(.+)$/gm)].map(match => ({ start: match.index, title: match[1].trim() }));
-  return sectionsFromBoundaries(text, boundaries, fallbackTitle);
-}
-
-export function parseCode(text, fallbackTitle) {
-  const pattern = /^(?:export\s+)?(?:async\s+)?(?:function|class|const|let|var|interface|type)\s+([\w$]+)|^(?:public\s+|private\s+|protected\s+)?(?:class|interface|object|fun)\s+([\w$]+)/gm;
-  const boundaries = [...text.matchAll(pattern)].map(match => ({ start: match.index, title: match[1] || match[2] }));
   return sectionsFromBoundaries(text, boundaries, fallbackTitle);
 }
 
@@ -51,6 +43,6 @@ export async function parseDocument({ absolutePath, relativePath, source }) {
     return { source, title, file: relativePath, absolutePath, type: 'pdf', ...parsed };
   }
   const text = await fs.readFile(absolutePath, 'utf8');
-  const sections = extension === '.md' ? parseMarkdown(text, title) : codeExtensions.has(extension) ? parseCode(text, title) : [{ title, text, start: 0, end: text.length }];
-  return { source, title, file: relativePath, absolutePath, type: extension === '.md' ? 'markdown' : codeExtensions.has(extension) ? 'code' : 'text', text, sections };
+  const sections = extension === '.md' ? parseMarkdown(text, title) : [{ title, text, start: 0, end: text.length }];
+  return { source, title, file: relativePath, absolutePath, type: extension === '.md' ? 'markdown' : 'text', text, sections };
 }

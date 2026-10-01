@@ -1,11 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Container, CssBaseline, Divider, FormControl, InputLabel, Link, MenuItem, Paper, Select, Stack, Tab, Tabs, TextField, ThemeProvider, Typography, createTheme } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Container, CssBaseline, FormControlLabel, Link, LinearProgress, Paper, Stack, TextField, ThemeProvider, Typography, createTheme } from '@mui/material';
 import './styles.css';
 
-const theme = createTheme({ palette: { mode: 'dark', primary: { main: '#ffb25b' }, secondary: { main: '#78dcca' }, background: { default: '#111514', paper: '#19201e' } }, typography: { fontFamily: 'Inter, system-ui, sans-serif', h3: { fontWeight: 800, letterSpacing: '-.04em' } }, shape: { borderRadius: 14 } });
-const labels = { fixed: 'Фиксированный размер', structured: 'По структуре' };
-const fileUrl = file => `/api/documents/file?path=${encodeURIComponent(file)}`;
+const theme = createTheme({
+  palette: { mode: 'dark', primary: { main: '#f4b860' }, secondary: { main: '#78dcca' }, background: { default: '#101513', paper: '#19211e' } },
+  typography: { fontFamily: 'Inter, system-ui, sans-serif', h2: { fontWeight: 850, letterSpacing: '-.045em' } },
+  shape: { borderRadius: 16 },
+});
 
 async function request(path, options = {}) {
   const response = await fetch(path, { ...options, headers: options.body ? { 'Content-Type': 'application/json' } : undefined });
@@ -14,74 +16,164 @@ async function request(path, options = {}) {
   return data;
 }
 
-function Metric({ label, value, accent }) {
-  return <Box className="metric"><Typography variant="caption" color="text.secondary" display="block">{label}</Typography><Typography variant="h5" color={accent ? 'primary' : 'text.primary'} fontWeight={750}>{value ?? '—'}</Typography></Box>;
-}
+const fileUrl = file => `/api/documents/file?path=${encodeURIComponent(file)}`;
 
-function SourceLink({ file, children }) {
-  return <Link href={fileUrl(file)} target="_blank" rel="noopener" underline="hover" sx={{ overflowWrap: 'anywhere' }}>{children ?? file}</Link>;
-}
-
-function ChunkCard({ chunk, rank, score }) {
-  return <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 } }}>
-    <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1} flexWrap="wrap">
-      <Stack direction="row" gap={1} alignItems="center">{rank && <Chip size="small" label={`#${rank}`} />}<Typography fontWeight={700}>{chunk.metadata.section}</Typography></Stack>
-      <Stack direction="row" gap={1} alignItems="center">{score !== undefined && <Typography color="secondary" fontWeight={700}>{score.toFixed(4)}</Typography>}<Chip size="small" label={`${chunk.metadata.token_count} ток.`} /></Stack>
+function SourceCard({ source }) {
+  return <Paper variant="outlined" className="source-card">
+    <Stack direction="row" justifyContent="space-between" gap={1} alignItems="center">
+      <Chip size="small" color="secondary" label={source.label} />
+      <Typography variant="caption" color="secondary">similarity {source.score.toFixed(4)}</Typography>
     </Stack>
-    <Typography variant="caption" color="text.secondary" component="div" mt={0.5}><SourceLink file={chunk.metadata.file} /> · {chunk.metadata.chunk_id}</Typography>
-    <Typography className="clamped-text" variant="body2" mt={1}>{chunk.text}</Typography>
+    <Typography variant="body2" fontWeight={700} mt={1}>{source.section}</Typography>
+    <Link href={fileUrl(source.file)} target="_blank" rel="noopener" variant="caption">{source.file} ↗</Link>
+    <Typography variant="body2" className="source-text" mt={1}>{source.text}</Typography>
   </Paper>;
 }
 
-function IndexCard({ item, selected }) {
-  const stats = item.manifest?.stats;
-  return <Card variant="outlined" className={selected ? 'selected-card' : ''} sx={{ minWidth: 0 }}>
+function AnswerCard({ title, result, rag = false }) {
+  const successful = result?.status === 'success';
+  return <Card variant="outlined" className={rag ? 'answer-card rag-card' : 'answer-card'}>
     <CardContent>
-      <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap"><Typography variant="h6" sx={{ lineHeight: 1.25 }}>{labels[item.strategy]}</Typography><Chip size="small" color={item.available ? 'success' : 'default'} label={item.available ? 'готов' : 'нет индекса'} /></Stack>
-      <Typography variant="body2" color="text.secondary" mt={1}>{item.strategy === 'fixed' ? 'Окно 500 токенов · overlap 75' : 'Заголовки, страницы и блоки кода · максимум 700'}</Typography>
-      <Box className="metrics-row"><Metric label="Чанков" value={stats?.chunks} /><Metric label="Среднее" value={stats ? `${stats.average_tokens} ток.` : null} /><Metric label="Файл" value={item.bytes ? `${(item.bytes / 1024 / 1024).toFixed(1)} МБ` : null} /></Box>
-      {item.available && <Box mt={2}><Button size="small" component="a" href={`/?view=chunks&strategy=${item.strategy}`} target="_blank" rel="noopener">Всё разбиение ↗</Button></Box>}
+      <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1} mb={2}>
+        <Typography variant="overline" color={rag ? 'secondary' : 'primary'}>{title}</Typography>
+        {result && <Chip size="small" color={successful ? 'success' : 'error'} label={`${result.durationMs} мс`} />}
+      </Stack>
+      {!result && <Typography color="text.secondary">Ответ появится здесь.</Typography>}
+      {result && !successful && <Alert severity="error">{result.error}</Alert>}
+      {successful && <Typography className="answer-text">{result.answer}</Typography>}
+      {successful && rag && result.sources?.length > 0 && <Box component="details" mt={2}>
+        <Typography component="summary" color="secondary" fontWeight={750} sx={{ cursor: 'pointer' }}>Источники ({result.sources.length})</Typography>
+        <Stack gap={1} mt={1.5}>{result.sources.map(source => <SourceCard key={source.chunkId} source={source} />)}</Stack>
+      </Box>}
     </CardContent>
   </Card>;
 }
 
-function ChunkViewer({ strategy }) {
-  const [data, setData] = useState(null); const [error, setError] = useState('');
-  useEffect(() => { request(`/api/indexes/${strategy}/chunks?limit=1000`).then(setData).catch(error => setError(error.message)); }, [strategy]);
-  return <Container maxWidth="lg" sx={{ py: { xs: 2, md: 5 } }}>
-    <Button component="a" href="/" sx={{ mb: 2 }}>← К индексу</Button>
-    <Typography variant="overline" color="primary">ПОЛНОЕ РАЗБИЕНИЕ</Typography><Typography variant="h3" className="page-title">{labels[strategy]}</Typography>
-    <Typography color="text.secondary" mb={3}>{data ? `${data.total} чанков. Нажмите на имя файла, чтобы открыть исходный документ.` : 'Загружаю чанки…'}</Typography>
-    {error && <Alert severity="error">{error}</Alert>}{!data && !error && <CircularProgress />}
-    <Stack gap={1.5}>{data?.chunks.map(chunk => <ChunkCard key={chunk.chunk_id} chunk={chunk} />)}</Stack>
-  </Container>;
+function Rating({ checked, onChange, label }) {
+  return <FormControlLabel control={<Checkbox checked={Boolean(checked)} onChange={event => onChange(event.target.checked)} />} label={label} />;
+}
+
+function EvaluationItem({ item, result, ratings, onRate }) {
+  return <Paper component="details" variant="outlined" className="evaluation-item">
+    <Box component="summary" className="evaluation-summary">
+      <Chip size="small" label={item.id} />
+      <Typography fontWeight={750}>{item.question}</Typography>
+      <Chip size="small" color={result ? 'success' : 'default'} label={result ? 'готово' : 'не запускался'} />
+    </Box>
+    <Box className="evaluation-body">
+      <Typography variant="caption" color="text.secondary">ОЖИДАНИЕ</Typography>
+      <Typography mb={1.5}>{item.expectation}</Typography>
+      <Typography variant="caption" color="text.secondary">ЦЕЛЕВЫЕ ИСТОЧНИКИ</Typography>
+      <Stack gap={0.4} mt={0.5} mb={2}>{item.sources.map(source => <Typography variant="body2" key={source}>• {source}</Typography>)}</Stack>
+      {result && <Box className="mini-comparison">
+        {[['withoutRag', 'Без RAG'], ['withRag', 'С RAG']].map(([mode, label]) => <Box key={mode}>
+          <Typography variant="overline" color={mode === 'withRag' ? 'secondary' : 'primary'}>{label}</Typography>
+          {result[mode].status === 'success' ? <Typography className="mini-answer">{result[mode].answer}</Typography> : <Alert severity="error">{result[mode].error}</Alert>}
+          <Rating checked={ratings?.[mode]} onChange={value => onRate(item.id, mode, value)} label="Соответствует ожиданию" />
+        </Box>)}
+      </Box>}
+    </Box>
+  </Paper>;
 }
 
 function App() {
-  const [state, setState] = useState(null); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
-  const [query, setQuery] = useState('Почему индекс нужно записывать атомарно?'); const [topK, setTopK] = useState(5); const [search, setSearch] = useState(null);
-  const [selected, setSelected] = useState('fixed'); const [chunks, setChunks] = useState([]);
-  async function refresh() { setError(''); try { setState(await request('/api/indexes')); } catch (nextError) { setError(nextError.message); } }
-  useEffect(() => { refresh(); }, []);
-  async function build() { setBusy(true); setError(''); setSearch(null); try { await request('/api/indexes/build', { method: 'POST', body: JSON.stringify({ strategy: 'all' }) }); await refresh(); } catch (nextError) { setError(nextError.message); } finally { setBusy(false); } }
-  async function removeIndexes() { setBusy(true); setError(''); try { await request('/api/indexes', { method: 'DELETE' }); setSearch(null); setChunks([]); await refresh(); } catch (nextError) { setError(nextError.message); } finally { setBusy(false); } }
-  async function runSearch(event) { event.preventDefault(); if (!query.trim()) return; setBusy(true); setError(''); try { setSearch(await request('/api/search', { method: 'POST', body: JSON.stringify({ query, strategy: 'all', topK }) })); } catch (nextError) { setError(nextError.message); } finally { setBusy(false); } }
-  async function loadChunks(strategy) { setSelected(strategy); setError(''); try { setChunks((await request(`/api/indexes/${strategy}/chunks?limit=20`)).chunks); } catch (nextError) { setChunks([]); setError(nextError.message); } }
-  useEffect(() => { if (state?.indexes.some(item => item.strategy === selected && item.available)) loadChunks(selected); }, [state]);
-  const corpus = state?.corpus;
+  const [indexState, setIndexState] = useState(null);
+  const [questions, setQuestions] = useState([]);
+  const [question, setQuestion] = useState('Как защитить индекс от частичной записи?');
+  const [comparison, setComparison] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [evaluationBusy, setEvaluationBusy] = useState(false);
+  const [evaluationResults, setEvaluationResults] = useState({});
+  const [ratings, setRatings] = useState({});
+  const [progress, setProgress] = useState(0);
+
+  async function refresh() {
+    try { setIndexState(await request('/api/index')); } catch (nextError) { setError(nextError.message); }
+  }
+  useEffect(() => {
+    refresh();
+    request('/api/evaluation/questions').then(data => setQuestions(data.questions)).catch(nextError => setError(nextError.message));
+  }, []);
+
+  async function build() {
+    setBusy(true); setError('');
+    try { await request('/api/index/build', { method: 'POST', body: '{}' }); await refresh(); }
+    catch (nextError) { setError(nextError.message); }
+    finally { setBusy(false); }
+  }
+
+  async function compare(value) {
+    return request('/api/compare', { method: 'POST', body: JSON.stringify({ question: value }) });
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    if (!question.trim()) return;
+    setBusy(true); setError(''); setComparison(null);
+    try { setComparison(await compare(question)); }
+    catch (nextError) { setError(nextError.message); }
+    finally { setBusy(false); }
+  }
+
+  async function runEvaluation() {
+    setEvaluationBusy(true); setError(''); setEvaluationResults({}); setRatings({}); setProgress(0);
+    for (let index = 0; index < questions.length; index += 1) {
+      const item = questions[index];
+      try {
+        const result = await compare(item.question);
+        setEvaluationResults(current => ({ ...current, [item.id]: result }));
+      } catch (nextError) {
+        setEvaluationResults(current => ({ ...current, [item.id]: { withoutRag: { status: 'error', error: nextError.message }, withRag: { status: 'error', error: nextError.message } } }));
+      }
+      setProgress(index + 1);
+    }
+    setEvaluationBusy(false);
+  }
+
+  function rate(id, mode, value) {
+    setRatings(current => ({ ...current, [id]: { ...current[id], [mode]: value } }));
+  }
+
+  const scores = useMemo(() => ({
+    withoutRag: Object.values(ratings).filter(item => item.withoutRag).length,
+    withRag: Object.values(ratings).filter(item => item.withRag).length,
+  }), [ratings]);
+  const completed = Object.keys(evaluationResults).length;
+  const ready = indexState?.index.available;
+
   return <Container maxWidth="xl" sx={{ py: { xs: 2, md: 5 } }}>
-    <Box className="hero"><Box><Typography variant="overline" color="primary">AI ADVENT · ДЕНЬ 21</Typography><Typography variant="h3" className="page-title">Индекс документов</Typography><Typography color="text.secondary" mt={1}>Два способа разбиения. Один корпус. Сравним, что найдётся.</Typography></Box><Stack className="hero-actions" direction={{ xs: 'column', sm: 'row' }} gap={{ xs: 1.5, sm: 2 }}><Button color="error" variant="outlined" size="large" onClick={removeIndexes} disabled={busy || !state?.indexes.some(item => item.available)}>Удалить индексы</Button><Button variant="contained" size="large" onClick={build} disabled={busy}>{busy ? <CircularProgress size={22} /> : 'Построить оба индекса'}</Button></Stack></Box>
+    <Box className="hero">
+      <Box><Typography variant="overline" color="primary">AI ADVENT · ДЕНЬ 22</Typography><Typography variant="h2" className="page-title">Первый RAG-запрос</Typography><Typography color="text.secondary" mt={1}>Один вопрос. Два ответа. Видим, что меняет контекст базы знаний.</Typography></Box>
+      <Paper variant="outlined" className="index-status">
+        <Stack direction="row" gap={1} alignItems="center"><Chip size="small" color={ready ? 'success' : 'warning'} label={ready ? 'индекс готов' : 'нет индекса'} /><Typography fontWeight={750}>Structured · top 3</Typography></Stack>
+        <Typography variant="body2" color="text.secondary" mt={1}>{ready ? `${indexState.index.manifest.stats.chunks} чанков · ${indexState.corpus.documents} документа` : 'Постройте индекс перед RAG-запросом.'}</Typography>
+        <Button variant="outlined" onClick={build} disabled={busy || evaluationBusy} sx={{ mt: 1.5 }}>{ready ? 'Перестроить индекс' : 'Построить индекс'}</Button>
+      </Paper>
+    </Box>
+
     {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
-    {!state ? <CircularProgress /> : <>
-      <Paper variant="outlined" sx={{ p: { xs: 2, md: 2.5 }, mb: 3 }}><Box className="corpus-metrics"><Metric label="Документы" value={corpus.documents} accent /><Metric label="Токены корпуса" value={corpus.tokens.toLocaleString('ru-RU')} /><Metric label="Эквивалент страниц" value={`~${corpus.estimatedPages}`} /><Metric label="Форматы" value={Object.keys(corpus.types).join(' · ')} /></Box><Box component="details" mt={2}><Typography component="summary" color="primary" sx={{ cursor: 'pointer', fontWeight: 700 }}>Посмотреть файлы корпуса ({corpus.files.length})</Typography><Box className="file-grid">{corpus.files.map(file => <Paper key={file.file} variant="outlined" sx={{ p: 1.5 }}><SourceLink file={file.file}>{file.file} ↗</SourceLink><Typography variant="caption" color="text.secondary" display="block">{file.type} · секций: {file.sections}</Typography></Paper>)}</Box></Box></Paper>
-      <Box className="index-grid">{state.indexes.map(item => <IndexCard key={item.strategy} item={item} selected={selected === item.strategy} />)}</Box>
-      <Paper component="form" onSubmit={runSearch} variant="outlined" sx={{ p: { xs: 2, md: 3 }, mb: 4 }}><Box className="search-form"><TextField fullWidth label="Вопрос к документам" value={query} onChange={event => setQuery(event.target.value)} inputProps={{ maxLength: 2000 }} /><FormControl fullWidth><InputLabel>Top‑k</InputLabel><Select label="Top‑k" value={topK} onChange={event => setTopK(Number(event.target.value))}>{[3, 5, 10].map(value => <MenuItem key={value} value={value}>{value}</MenuItem>)}</Select></FormControl><Button type="submit" variant="outlined" disabled={busy || !query.trim()}>Найти</Button></Box></Paper>
-      {search && <Box mb={4}><Typography variant="h5" fontWeight={750} mb={2}>Сравнение выдачи</Typography><Box className="result-grid">{['fixed', 'structured'].map(strategy => <Stack key={strategy} gap={1.5}><Typography variant="overline" color={strategy === 'fixed' ? 'primary' : 'secondary'}>{labels[strategy]}</Typography>{search.results[strategy]?.map((result, index) => <ChunkCard key={result.metadata.chunk_id} chunk={result} rank={index + 1} score={result.score} />)}</Stack>)}</Box></Box>}
-      <Box><Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={1}><Box><Typography variant="h5" fontWeight={750}>Чанки и метаданные</Typography><Typography color="text.secondary">Первые 20 фрагментов. Имя файла открывает оригинал.</Typography></Box><Tabs value={selected} onChange={(_event, value) => loadChunks(value)} variant="scrollable"><Tab value="fixed" label="Fixed" /><Tab value="structured" label="Structured" /></Tabs></Stack><Divider sx={{ my: 2 }} />{chunks.length ? <Stack gap={1.5}>{chunks.map(chunk => <ChunkCard key={chunk.chunk_id} chunk={chunk} />)}</Stack> : <Typography color="text.secondary">Постройте индекс, чтобы увидеть разбиение.</Typography>}</Box>
-    </>}
+    <Paper component="form" onSubmit={submit} variant="outlined" className="question-form">
+      <TextField fullWidth multiline minRows={2} label="Вопрос к базе знаний" value={question} onChange={event => setQuestion(event.target.value)} inputProps={{ maxLength: 2000 }} />
+      <Button type="submit" variant="contained" size="large" disabled={busy || evaluationBusy || !question.trim() || !ready}>{busy ? <CircularProgress size={24} /> : 'Сравнить ответы'}</Button>
+    </Paper>
+
+    <Box className="answer-grid">
+      <AnswerCard title="Без RAG" result={comparison?.withoutRag} />
+      <AnswerCard title="С RAG · 3 чанка" result={comparison?.withRag} rag />
+    </Box>
+
+    <Box className="evaluation-header">
+      <Box><Typography variant="overline" color="secondary">КОНТРОЛЬНЫЙ НАБОР</Typography><Typography variant="h4" fontWeight={800}>10 вопросов к базе</Typography><Typography color="text.secondary" mt={0.5}>Сверьте ответы с ожиданиями и отметьте качество вручную.</Typography></Box>
+      <Stack direction={{ xs: 'column', sm: 'row' }} gap={1.5} alignItems={{ sm: 'center' }}>
+        <Chip color="primary" label={`Без RAG: ${scores.withoutRag} / ${completed}`} />
+        <Chip color="secondary" label={`С RAG: ${scores.withRag} / ${completed}`} />
+        <Button variant="outlined" onClick={runEvaluation} disabled={evaluationBusy || busy || !ready}>{evaluationBusy ? `Выполняется ${progress}/${questions.length}` : 'Запустить все'}</Button>
+      </Stack>
+    </Box>
+    {evaluationBusy && <LinearProgress variant="determinate" value={(progress / Math.max(questions.length, 1)) * 100} sx={{ mb: 2 }} />}
+    <Stack className="evaluation-list">{questions.map(item => <EvaluationItem key={item.id} item={item} result={evaluationResults[item.id]} ratings={ratings[item.id]} onRate={rate} />)}</Stack>
   </Container>;
 }
 
-const params = new URLSearchParams(window.location.search);
-const viewerStrategy = params.get('view') === 'chunks' && ['fixed', 'structured'].includes(params.get('strategy')) ? params.get('strategy') : null;
-createRoot(document.getElementById('root')).render(<React.StrictMode><ThemeProvider theme={theme}><CssBaseline />{viewerStrategy ? <ChunkViewer strategy={viewerStrategy} /> : <App />}</ThemeProvider></React.StrictMode>);
+createRoot(document.getElementById('root')).render(<React.StrictMode><ThemeProvider theme={theme}><CssBaseline /><App /></ThemeProvider></React.StrictMode>);

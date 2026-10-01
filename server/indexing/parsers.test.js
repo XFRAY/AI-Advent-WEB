@@ -1,17 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { parseCode, parseDocument, parseMarkdown } from './parsers.js';
+import { parseDocument, parseMarkdown } from './parsers.js';
 import { projectRoot } from './corpus.js';
 
 test('Markdown parser uses headings as sections', () => {
   const sections = parseMarkdown('Вступление\n# Первый\nТекст\n## Второй\nЕщё', 'Документ');
   assert.deepEqual(sections.map(item => item.title), ['Документ', 'Первый', 'Второй']);
-});
-
-test('code parser recognizes top-level declarations', () => {
-  const sections = parseCode('const one = 1;\nexport function two() {}\nclass Three {}', 'file');
-  assert.deepEqual(sections.map(item => item.title), ['one', 'two', 'Three']);
 });
 
 test('PDF parser preserves individual page sections', async () => {
