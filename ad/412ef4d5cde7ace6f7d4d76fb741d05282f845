@@ -1,0 +1,71 @@
+server/index.js
+  s_93224eb7f1f57c::t_5309a9b7615469 2,5,8-9,11,13,17-18,26-27,29-46,48-56,61,65-67,69-70,72-76,79,89
+server/indexing/parsers.js
+  s_93224eb7f1f57c::t_159c1d14dd70a2 46-47
+server/indexing/search.js
+  s_93224eb7f1f57c::t_b82a9fa7b038ab 10,13-14,16,19
+README.md
+  s_93224eb7f1f57c::t_a16aec20d28e4f 1,3,5,7-9,11,13,15,17,19-21,23,25,27,29,41,43,51-56,66
+src/main.jsx
+  s_93224eb7f1f57c::t_247b6a1b145f92 175
+  s_93224eb7f1f57c::t_b0a8e022ec626b 1,3,6-10,19,21-25,27-29,33-35,37-47,52-76,80-144,146-154,156-174,179
+server/indexing/chunking.js
+  s_93224eb7f1f57c::t_b82a9fa7b038ab 4,10-11,21,30,35
+server/indexing/chunking.test.js
+  s_93224eb7f1f57c::t_e40e7c3a20e6f6 8-10,16-17
+server/indexing/cli.js
+  s_93224eb7f1f57c::t_e40e7c3a20e6f6 4,7-11
+server/indexing/store.js
+  s_93224eb7f1f57c::t_b82a9fa7b038ab 8-9,12-15,21,33-34,37,39-41
+  s_93224eb7f1f57c::t_f77a18802198e3 43
+server/RagAgent.js
+  s_93224eb7f1f57c::t_f77a18802198e3 1-70
+server/indexing/pipeline.test.js
+  s_93224eb7f1f57c::t_d180d4ca87a17e 7,9,12,15,21,23-25,28,30-38,43-47,50,53-54
+package.json
+  s_93224eb7f1f57c::t_e40e7c3a20e6f6 2,13,29
+server/indexing/pipeline.js
+  s_93224eb7f1f57c::t_b82a9fa7b038ab 7,10-31
+server/RagAgent.test.js
+  s_93224eb7f1f57c::t_7610fc4eff71a9 3-26,28-37,40-45,47-54
+server/indexing/parsers.test.js
+  s_93224eb7f1f57c::t_159c1d14dd70a2 4
+index.html
+  s_93224eb7f1f57c::t_e40e7c3a20e6f6 8,15
+src/styles.css
+  s_93224eb7f1f57c::t_ebcbbe3debd05e 1,3,5,10-15,18-23,25-27,30-36
+  s_93224eb7f1f57c::t_247b6a1b145f92 7-9,16-17
+  s_93224eb7f1f57c::t_f30898fdc2ea85 6
+corpus/evaluation.json
+  s_93224eb7f1f57c::t_b82a9fa7b038ab 1-6,8-12
+  s_93224eb7f1f57c::t_159c1d14dd70a2 7
+server/index.test.js
+  s_93224eb7f1f57c::t_d808863cb0f5cd 4,13-19,28,70
+  s_93224eb7f1f57c::t_df79a9063e5709 40,43
+  s_93224eb7f1f57c::t_4ecfec76f04519 11,20-21,24,26,31,33-39,41-42,47,49,53-60,66-69,71,73,75
+package-lock.json
+  s_93224eb7f1f57c::t_9f7f2538e1ae53 2,8,22,4116-4117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "ad412ef4d5cde7ace6f7d4d76fb741d05282f845",
+  "prompts": {},
+  "sessions": {
+    "s_93224eb7f1f57c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f72d-3d80-7f63-b46d-4a23d1c7843d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Anton Taklionak <anton.taklionak@viber.com>",
+      "token_usage": {
+        "input_tokens": 154702,
+        "output_tokens": 39060,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 8615936
+      },
+      "billing_source": "subscription"
+    }
+  }
+}
