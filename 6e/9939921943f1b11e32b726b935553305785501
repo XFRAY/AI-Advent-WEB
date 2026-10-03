@@ -1,0 +1,48 @@
+server/RagAgent.js
+  s_bbca92b3c6ba06::t_f14413e992e3c7 6,9,13-15,18-43,49,51-53,70-71,79,103-127,145-148,151-157,160,162,165-174
+  s_bbca92b3c6ba06::t_7b94f806786384 128-134,149-150
+server/index.test.js
+  s_bbca92b3c6ba06::t_8180e03afaed55 11-15,25,29,35,41-47,54-63,66-69,73-74,76-77,85
+server/index.js
+  s_bbca92b3c6ba06::t_09217fd1c9806a 5,83,85,87-88,101
+index.html
+  s_bbca92b3c6ba06::t_09217fd1c9806a 15
+  s_bbca92b3c6ba06::t_75bb553986a9ff 8
+package.json
+  s_bbca92b3c6ba06::t_09217fd1c9806a 2
+server/RagAgent.test.js
+  s_bbca92b3c6ba06::t_8f6d9258a86d3e 6,14,18,24-27,29,31,43,50-62,64-66,72-74,76-82,85,89-90,92-94,96-98,101,104-118,121-122,124,126-127
+  s_bbca92b3c6ba06::t_7b94f806786384 63
+src/main.jsx
+  s_bbca92b3c6ba06::t_f0f4e47635ee61 160
+  s_bbca92b3c6ba06::t_a7d2ba07f24506 28,30-31,35-37,40-41,43-51,53,55-57,59-62,68-69,72-74,79,83,86-93,102,114,119,138,140,144,149-150,156,163,169,171-175,179,181,183,193,195,198-202,207
+src/styles.css
+  s_bbca92b3c6ba06::t_f0f4e47635ee61 10-11,13,15,30,39
+README.md
+  s_bbca92b3c6ba06::t_61db97fcebd487 1,3,5,8-13,16,18,20,22-31,39,41,53,57-60,77-78,87
+package-lock.json
+  s_bbca92b3c6ba06::t_dbcca0adf44e02 2,8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "6e9939921943f1b11e32b726b935553305785501",
+  "prompts": {},
+  "sessions": {
+    "s_bbca92b3c6ba06": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a101a7-12b9-7af1-b8b2-3d740a35aef7",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Anton Taklionak <anton.taklionak@viber.com>",
+      "token_usage": {
+        "input_tokens": 99331,
+        "output_tokens": 32441,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 4522112
+      },
+      "billing_source": "subscription"
+    }
+  }
+}
