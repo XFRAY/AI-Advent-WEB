@@ -1,0 +1,60 @@
+src/main.jsx
+  s_dfba45c15a7b0c::t_8e33d92567d631 3,6,16-17,20-21,24-26,29-31,34,41-43,45-46,48-50,52-55,58,60-61,65,68-74,76-78,83-89,92-93
+  s_dfba45c15a7b0c::t_3876981377bb0d 35
+  s_dfba45c15a7b0c::t_6d3a3bb9ccd6d4 94
+  s_dfba45c15a7b0c::t_047994f4cc2454 1,47,66-67
+.env.example
+  s_dfba45c15a7b0c::t_62bea254d1cc83 7
+index.html
+  s_dfba45c15a7b0c::t_8679dfa44e1a28 8,15
+server/ChatRepository.test.js
+  s_dfba45c15a7b0c::t_96f2be9971f950 1-36
+server/ChatRepository.js
+  s_dfba45c15a7b0c::t_f992d40afa73b8 1-67,69-117
+  s_dfba45c15a7b0c::t_c7b826200c9d86 68
+server/index.js
+  s_dfba45c15a7b0c::t_c7b826200c9d86 5-6,28,32-33,35,101-121,131
+  s_dfba45c15a7b0c::t_047994f4cc2454 34,36-39
+server/index.test.js
+  s_dfba45c15a7b0c::t_bdbca8f91d6259 12,33,74-91,108
+README.md
+  s_dfba45c15a7b0c::t_5fd1f4b593072e 1,3,5,7,9-12,14,16-23,36,40-46,48,52,68
+server/ChatAgent.test.js
+  s_dfba45c15a7b0c::t_96f2be9971f950 1-74,89-105
+  s_dfba45c15a7b0c::t_8679dfa44e1a28 75-88
+package.json
+  s_dfba45c15a7b0c::t_96f2be9971f950 13
+  s_dfba45c15a7b0c::t_f248ec555b2817 22
+  s_dfba45c15a7b0c::t_62bea254d1cc83 2
+src/styles.css
+  s_dfba45c15a7b0c::t_8e33d92567d631 1,3-26
+  s_dfba45c15a7b0c::t_6d3a3bb9ccd6d4 27
+server/ChatAgent.js
+  s_dfba45c15a7b0c::t_f992d40afa73b8 1-49,52-57,59-92,94-115,124-151
+  s_dfba45c15a7b0c::t_047994f4cc2454 50-51,58,93,116-123
+package-lock.json
+  s_dfba45c15a7b0c::t_b0dfe2a749d1bc 2,8,15,1915-1934,1947-1980,2051-2074,2170-2175,2365-2388,2408-2416,2491-2499,2632-2640,2708-2713,2817-2822,2901-2906,3019-3038,3061-3066,3257-3283,3308-3313,3343-3366,3561-3587,3618-3627,3672-3686,3739-3752,3862-3881,4038-4082,4110-4118,4145-4153,4222-4249,4290-4301,4372-4377
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "753ff3ff34bcff4e85f5115b717cc756f2b2b8d6",
+  "prompts": {},
+  "sessions": {
+    "s_dfba45c15a7b0c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a101d9-cea4-7622-acf9-f6ec60279579",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Anton Taklionak <anton.taklionak@viber.com>",
+      "token_usage": {
+        "input_tokens": 111646,
+        "output_tokens": 33083,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 3273856
+      },
+      "billing_source": "subscription"
+    }
+  }
+}
