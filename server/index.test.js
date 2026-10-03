@@ -8,7 +8,7 @@ import request from 'supertest';
 import { createApp } from './index.js';
 
 const embedder = { model: 'api-test', async embed(texts) { return texts.map(text => [text.length, 1]); } };
-const generator = { async generate({ input }) { return input.includes('Контекст базы знаний') ? 'Ответ с источником [S1]' : 'Ответ без источника'; } };
+const generator = { async generate({ instructions }) { return instructions.includes('Преобразуй вопрос') ? 'семантический поиск' : 'Ответ с источником [S1]'; } };
 
 async function listeningServer(t, app) {
   const server = http.createServer(app);
@@ -18,7 +18,7 @@ async function listeningServer(t, app) {
 }
 
 async function fixture(t, customGenerator = generator) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'day22-api-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'day23-api-'));
   await fs.writeFile(path.join(root, 'doc.md'), '# API\nЛокальный индекс документов и семантический поиск.');
   const manifestPath = path.join(root, 'manifest.json');
   const questionsPath = path.join(root, 'evaluation.json');
@@ -32,12 +32,15 @@ test('API builds index, compares modes, and exposes evaluation questions', async
   const app = await fixture(t);
   let response = await request(app).get('/api/index').expect(200);
   assert.equal(response.body.index.available, false);
+  assert.deepEqual(response.body.ragDefaults, { candidateTopK: 8, resultTopK: 3, similarityThreshold: 0.35 });
   await request(app).post('/api/index/build').send({}).expect(200);
   response = await request(app).post('/api/compare').send({ question: 'Что такое поиск?' }).expect(200);
-  assert.equal(response.body.withoutRag.status, 'success');
-  assert.equal(response.body.withoutRag.sources, undefined);
-  assert.equal(response.body.withRag.sources.length, 1);
-  const sourceFile = response.body.withRag.sources[0].file;
+  assert.deepEqual(response.body.settings, { candidateTopK: 8, resultTopK: 3, similarityThreshold: 0.35 });
+  assert.equal(response.body.rawRag.status, 'success');
+  assert.equal(response.body.improvedRag.status, 'success');
+  assert.equal(response.body.rawRag.sources.length, 1);
+  assert.equal(response.body.improvedRag.rewrittenQuery, 'семантический поиск');
+  const sourceFile = response.body.rawRag.sources[0].file;
   response = await request(app).get('/api/evaluation/questions').expect(200);
   assert.equal(response.body.questions.length, 1);
   response = await request(app).get('/api/documents/file').query({ path: sourceFile }).expect(200);
@@ -47,15 +50,17 @@ test('API builds index, compares modes, and exposes evaluation questions', async
 test('API validates input and protects files outside the corpus', async t => {
   const app = await fixture(t);
   await request(app).post('/api/compare').send({ question: '' }).expect(400);
+  await request(app).post('/api/compare').send({ question: 'test', settings: { candidateTopK: 2, resultTopK: 3 } }).expect(400);
+  await request(app).post('/api/compare').send({ question: 'test', settings: { similarityThreshold: -2 } }).expect(400);
   await request(app).get('/api/documents/file').query({ path: '../.env' }).expect(404);
 });
 
-test('API returns partial success when one mode fails', async t => {
-  const app = await fixture(t, { async generate({ input }) { if (!input.includes('Контекст базы знаний')) throw new Error('fail'); return 'RAG ok [S1]'; } });
+test('API returns partial success when rewrite fails', async t => {
+  const app = await fixture(t, { async generate({ instructions }) { if (instructions.includes('Преобразуй вопрос')) throw new Error('fail'); return 'Raw RAG ok [S1]'; } });
   await request(app).post('/api/index/build').send({}).expect(200);
   const response = await request(app).post('/api/compare').send({ question: 'Вопрос' }).expect(200);
-  assert.equal(response.body.withoutRag.status, 'error');
-  assert.equal(response.body.withRag.status, 'success');
+  assert.equal(response.body.rawRag.status, 'success');
+  assert.equal(response.body.improvedRag.status, 'error');
 });
 
 test('API rejects concurrent indexing', async t => {

@@ -1,7 +1,5 @@
 {
   "entries": [
-    { "path": "../README.md", "source": "project-readme" },
-    { "path": "articles", "source": "ai-advent-articles", "extensions": [".md"] },
-    { "path": "indexing-handbook.pdf", "source": "pdf-handbook" }
+    { "path": "cafe-sever.md", "source": "cafe-handbook" }
   ]
 }

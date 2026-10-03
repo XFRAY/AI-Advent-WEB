@@ -2,7 +2,7 @@ import 'dotenv/config';
 import fs from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import express from 'express';
-import { RagAgent, createOpenAIGenerator } from './RagAgent.js';
+import { DEFAULT_RAG_SETTINGS, RagAgent, createOpenAIGenerator, resolveRagSettings } from './RagAgent.js';
 import { loadCorpus } from './indexing/corpus.js';
 import { createOpenAIEmbedder, EmbeddingConfigurationError } from './indexing/embeddings.js';
 import { buildIndex } from './indexing/pipeline.js';
@@ -10,11 +10,24 @@ import { readIndexSummary } from './indexing/store.js';
 
 const evaluationPath = fileURLToPath(new URL('../corpus/evaluation.json', import.meta.url));
 
-export function createApp({ embedder, generator, agent, indexesDir, manifestPath, questionsPath = evaluationPath } = {}) {
+function envNumber(name, fallback) {
+  const value = process.env[name];
+  return value === undefined || value === '' ? fallback : Number(value);
+}
+
+export function readRagDefaults() {
+  return resolveRagSettings({
+    candidateTopK: envNumber('RAG_CANDIDATE_TOP_K', DEFAULT_RAG_SETTINGS.candidateTopK),
+    resultTopK: envNumber('RAG_RESULT_TOP_K', DEFAULT_RAG_SETTINGS.resultTopK),
+    similarityThreshold: envNumber('RAG_SIMILARITY_THRESHOLD', DEFAULT_RAG_SETTINGS.similarityThreshold),
+  });
+}
+
+export function createApp({ embedder, generator, agent, indexesDir, manifestPath, questionsPath = evaluationPath, ragDefaults = readRagDefaults() } = {}) {
   const app = express();
   let building = false;
   const getEmbedder = () => embedder ?? createOpenAIEmbedder();
-  const getAgent = () => agent ?? new RagAgent({ embedder: getEmbedder(), generator: generator ?? createOpenAIGenerator(), indexesDir });
+  const getAgent = () => agent ?? new RagAgent({ embedder: getEmbedder(), generator: generator ?? createOpenAIGenerator(), indexesDir, defaults: ragDefaults });
 
   app.use('/api', (req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -27,7 +40,7 @@ export function createApp({ embedder, generator, agent, indexesDir, manifestPath
   app.get('/api/index', async (_req, res) => {
     try {
       const [corpus, index] = await Promise.all([loadCorpus({ manifestPath }), readIndexSummary(indexesDir)]);
-      res.json({ building, corpus: corpus.stats, index });
+      res.json({ building, corpus: corpus.stats, index, ragDefaults });
     } catch (error) {
       res.status(500).json({ error: `Не удалось прочитать базу знаний: ${error.message}` });
     }
@@ -69,8 +82,8 @@ export function createApp({ embedder, generator, agent, indexesDir, manifestPath
 
   app.post('/api/compare', async (req, res) => {
     try {
-      const result = await getAgent().compare(req.body?.question);
-      const hasAnswer = result.withoutRag.status === 'success' || result.withRag.status === 'success';
+      const result = await getAgent().compare(req.body?.question, req.body?.settings);
+      const hasAnswer = result.rawRag.status === 'success' || result.improvedRag.status === 'success';
       res.status(hasAnswer ? 200 : 502).json(result);
     } catch (error) {
       res.status(error instanceof TypeError ? 400 : 502).json({ error: error instanceof TypeError ? error.message : 'Не удалось сравнить ответы.' });
@@ -86,5 +99,5 @@ export function createApp({ embedder, generator, agent, indexesDir, manifestPath
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT || 3001);
-  createApp().listen(port, '127.0.0.1', () => console.log(`День 22 · Первый RAG-запрос: http://127.0.0.1:${port}`));
+  createApp().listen(port, '127.0.0.1', () => console.log(`День 23 · Реранкинг и фильтрация: http://127.0.0.1:${port}`));
 }

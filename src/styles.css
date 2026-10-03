@@ -6,11 +6,14 @@ body { margin: 0; min-width: 320px; background: radial-gradient(circle at 85% 0%
 .index-status > .MuiStack-root { column-gap: 12px !important; row-gap: 8px !important; }
 .index-status .MuiButton-root { margin-top: 16px; }
 .question-form { display: grid; grid-template-columns: minmax(0, 1fr) 190px; gap: 20px; align-items: stretch; padding: 24px; margin-bottom: 24px; }
+.settings-panel { display: grid; grid-template-columns: minmax(240px, 1fr) repeat(3, minmax(150px, 190px)); align-items: center; gap: 16px; padding: 20px 24px; margin-bottom: 16px; }
 .answer-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-bottom: 64px; }
 .answer-card { min-height: 240px; border-top: 3px solid #f4b860 !important; }
 .rag-card { border-top-color: #78dcca !important; background: linear-gradient(145deg, rgba(120, 220, 202, .07), transparent 55%) !important; }
 .answer-text, .mini-answer { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65 !important; }
 .source-card { padding: 14px; }
+.rejected-source { opacity: .62; }
+.rewrite-box { padding: 14px; background: rgba(120, 220, 202, .045) !important; }
 .source-text { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; line-height: 1.55 !important; }
 .evaluation-header { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
 .evaluation-header > .MuiStack-root { gap: 12px !important; }
@@ -25,6 +28,7 @@ body { margin: 0; min-width: 320px; background: radial-gradient(circle at 85% 0%
   .hero { grid-template-columns: 1fr; align-items: stretch; }
   .answer-grid, .mini-comparison { grid-template-columns: 1fr; }
   .evaluation-header { align-items: stretch; flex-direction: column; }
+  .settings-panel { grid-template-columns: 1fr; }
 }
 @media (max-width: 600px) {
   .page-title { font-size: 2.5rem !important; line-height: 1.05 !important; }
