@@ -2,6 +2,8 @@ import 'dotenv/config';
 import fs from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import express from 'express';
+import { ChatAgent } from './ChatAgent.js';
+import { ChatRepository } from './ChatRepository.js';
 import { DEFAULT_RAG_SETTINGS, GroundingValidationError, RagAgent, createOpenAIGenerator, resolveRagSettings } from './RagAgent.js';
 import { loadCorpus } from './indexing/corpus.js';
 import { createOpenAIEmbedder, EmbeddingConfigurationError } from './indexing/embeddings.js';
@@ -23,11 +25,18 @@ export function readRagDefaults() {
   });
 }
 
-export function createApp({ embedder, generator, agent, indexesDir, manifestPath, questionsPath = evaluationPath, ragDefaults = readRagDefaults() } = {}) {
+export function createApp({ embedder, generator, agent, chatAgent, chatRepository, databasePath, indexesDir, manifestPath, questionsPath = evaluationPath, ragDefaults = readRagDefaults() } = {}) {
   const app = express();
   let building = false;
   const getEmbedder = () => embedder ?? createOpenAIEmbedder();
-  const getAgent = () => agent ?? new RagAgent({ embedder: getEmbedder(), generator: generator ?? createOpenAIGenerator(), indexesDir, defaults: ragDefaults });
+  const getGenerator = () => generator ?? createOpenAIGenerator();
+  const repository = chatRepository ?? new ChatRepository({ databasePath });
+  let chatAgentInstance = chatAgent;
+  const getAgent = () => agent ?? new RagAgent({ embedder: getEmbedder(), generator: getGenerator(), indexesDir, defaults: ragDefaults });
+  const getChatAgent = () => {
+    chatAgentInstance ??= new ChatAgent({ repository, embedder: getEmbedder(), generator: getGenerator(), indexesDir, defaults: ragDefaults });
+    return chatAgentInstance;
+  };
 
   app.use('/api', (req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -89,6 +98,27 @@ export function createApp({ embedder, generator, agent, indexesDir, manifestPath
     }
   });
 
+  app.get('/api/conversations', (_req, res) => res.json({ conversations: repository.listConversations() }));
+
+  app.post('/api/conversations', (_req, res) => res.status(201).json({ conversation: repository.createConversation() }));
+
+  app.get('/api/conversations/:id', (req, res) => {
+    const conversation = repository.getConversation(req.params.id);
+    if (!conversation) return res.status(404).json({ error: 'Диалог не найден.' });
+    res.json({ conversation });
+  });
+
+  app.post('/api/conversations/:id/messages', async (req, res) => {
+    try {
+      const result = await getChatAgent().answer(req.params.id, req.body?.content, req.body?.settings);
+      if (!result) return res.status(404).json({ error: 'Диалог не найден.' });
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof TypeError || error instanceof GroundingValidationError ? error.message : 'Не удалось получить ответ.';
+      res.status(error instanceof TypeError ? 400 : 502).json({ error: message });
+    }
+  });
+
   app.get('/api/health', (_req, res) => res.json({ ok: true, building }));
   app.use('/api', (_req, res) => res.status(404).json({ error: 'API-маршрут не найден.' }));
   app.use(express.static(fileURLToPath(new URL('../dist', import.meta.url))));
@@ -98,5 +128,5 @@ export function createApp({ embedder, generator, agent, indexesDir, manifestPath
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT || 3001);
-  createApp().listen(port, '127.0.0.1', () => console.log(`День 24 · Цитаты и анти-галлюцинации: http://127.0.0.1:${port}`));
+  createApp().listen(port, '127.0.0.1', () => console.log(`День 25 · RAG-чат с памятью: http://127.0.0.1:${port}`));
 }

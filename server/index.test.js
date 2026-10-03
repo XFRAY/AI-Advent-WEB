@@ -9,6 +9,7 @@ import { createApp } from './index.js';
 
 const embedder = { model: 'api-test', async embed(texts) { return texts.map(text => [text.length, 1]); } };
 const generator = { async generate({ format, input }) {
+  if (format?.name === 'task_state') return JSON.stringify({ goal: 'Проверить API', clarifications: [], constraints: [], terms: [] });
   if (!format) return 'семантический поиск';
   const quote = input.match(/<source>\n([^\n]+)/)?.[1];
   return JSON.stringify({ answer: 'Подтверждённый ответ [S1]', citations: [{ sourceLabel: 'S1', quote }] });
@@ -29,7 +30,7 @@ async function fixture(t, customGenerator = generator) {
   await fs.writeFile(manifestPath, JSON.stringify({ entries: [{ path: 'doc.md', source: 'api-handbook' }] }));
   await fs.writeFile(questionsPath, JSON.stringify([{ id: 1, question: 'Вопрос?', expectation: 'Ответ', sources: ['doc.md'] }]));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
-  return listeningServer(t, createApp({ embedder, generator: customGenerator, indexesDir: path.join(root, 'indexes'), manifestPath, questionsPath }));
+  return listeningServer(t, createApp({ embedder, generator: customGenerator, indexesDir: path.join(root, 'indexes'), manifestPath, questionsPath, databasePath: path.join(root, 'chat.sqlite') }));
 }
 
 test('API builds index, returns grounded answer, and exposes evaluation questions', async t => {
@@ -70,6 +71,24 @@ test('API validates input and protects files outside the corpus', async t => {
   await request(app).get('/api/documents/file').query({ path: '../.env' }).expect(404);
 });
 
+test('conversation API creates, lists, restores, and appends grounded chat turns', async t => {
+  const app = await fixture(t);
+  await request(app).post('/api/index/build').send({}).expect(200);
+  let response = await request(app).post('/api/conversations').send({}).expect(201);
+  const id = response.body.conversation.id;
+  response = await request(app).post(`/api/conversations/${id}/messages`).send({ content: 'Что такое поиск?', settings: { similarityThreshold: -1 } }).expect(200);
+  assert.equal(response.body.conversation.messages.length, 2);
+  assert.equal(response.body.message.contextFound, true);
+  assert.equal(response.body.message.sources.length, 1);
+  assert.equal(response.body.conversation.taskState.goal, 'Проверить API');
+  response = await request(app).get(`/api/conversations/${id}`).expect(200);
+  assert.equal(response.body.conversation.messages[1].quotes.length, 1);
+  response = await request(app).get('/api/conversations').expect(200);
+  assert.equal(response.body.conversations[0].messageCount, 2);
+  await request(app).get('/api/conversations/missing').expect(404);
+  await request(app).post(`/api/conversations/${id}/messages`).send({ content: '' }).expect(400);
+});
+
 test('API exposes a controlled error after invalid answer and repair', async t => {
   const app = await fixture(t, { async generate({ format }) { return format ? '{invalid' : 'rewrite'; } });
   await request(app).post('/api/index/build').send({}).expect(200);
@@ -86,7 +105,7 @@ test('API rejects concurrent indexing', async t => {
   await fs.writeFile(path.join(root, 'doc.md'), '# Test\nContent');
   await fs.writeFile(path.join(root, 'manifest.json'), JSON.stringify({ entries: [{ path: 'doc.md', source: 'test' }] }));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
-  const app = await listeningServer(t, createApp({ embedder: slow, generator, indexesDir: path.join(root, 'indexes'), manifestPath: path.join(root, 'manifest.json') }));
+  const app = await listeningServer(t, createApp({ embedder: slow, generator, indexesDir: path.join(root, 'indexes'), manifestPath: path.join(root, 'manifest.json'), databasePath: path.join(root, 'chat.sqlite') }));
   const first = request(app).post('/api/index/build').send({}).then(response => response);
   await called;
   await request(app).post('/api/index/build').send({}).expect(409);

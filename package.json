@@ -1,5 +1,5 @@
 {
-  "name": "ai-advent-day-24-grounded-citations",
+  "name": "ai-advent-day-25-rag-chat-memory",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server/index.js",
-    "test": "node --test server/indexing/*.test.js server/RagAgent.test.js server/index.test.js",
+    "test": "node --test server/indexing/*.test.js server/*.test.js",
     "index": "node server/indexing/cli.js",
     "corpus:pdf": "node scripts/generate-corpus-pdf.js"
   },
@@ -19,6 +19,7 @@
     "@emotion/styled": "^11.14.1",
     "@mui/material": "^9.4.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "better-sqlite3": "^12.11.1",
     "concurrently": "^9.2.1",
     "dotenv": "^17.2.2",
     "express": "^5.1.0",
