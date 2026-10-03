@@ -2,7 +2,7 @@ import 'dotenv/config';
 import fs from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import express from 'express';
-import { DEFAULT_RAG_SETTINGS, RagAgent, createOpenAIGenerator, resolveRagSettings } from './RagAgent.js';
+import { DEFAULT_RAG_SETTINGS, GroundingValidationError, RagAgent, createOpenAIGenerator, resolveRagSettings } from './RagAgent.js';
 import { loadCorpus } from './indexing/corpus.js';
 import { createOpenAIEmbedder, EmbeddingConfigurationError } from './indexing/embeddings.js';
 import { buildIndex } from './indexing/pipeline.js';
@@ -80,13 +80,12 @@ export function createApp({ embedder, generator, agent, indexesDir, manifestPath
     }
   });
 
-  app.post('/api/compare', async (req, res) => {
+  app.post('/api/answer', async (req, res) => {
     try {
-      const result = await getAgent().compare(req.body?.question, req.body?.settings);
-      const hasAnswer = result.rawRag.status === 'success' || result.improvedRag.status === 'success';
-      res.status(hasAnswer ? 200 : 502).json(result);
+      res.json(await getAgent().answer(req.body?.question, req.body?.settings));
     } catch (error) {
-      res.status(error instanceof TypeError ? 400 : 502).json({ error: error instanceof TypeError ? error.message : 'Не удалось сравнить ответы.' });
+      const message = error instanceof TypeError || error instanceof GroundingValidationError ? error.message : 'Не удалось получить ответ.';
+      res.status(error instanceof TypeError ? 400 : 502).json({ error: message });
     }
   });
 
@@ -99,5 +98,5 @@ export function createApp({ embedder, generator, agent, indexesDir, manifestPath
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT || 3001);
-  createApp().listen(port, '127.0.0.1', () => console.log(`День 23 · Реранкинг и фильтрация: http://127.0.0.1:${port}`));
+  createApp().listen(port, '127.0.0.1', () => console.log(`День 24 · Цитаты и анти-галлюцинации: http://127.0.0.1:${port}`));
 }
