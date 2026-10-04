@@ -1,0 +1,30 @@
+src/main.jsx
+  s_dfba45c15a7b0c::t_3b108f3c34f37e 35
+src/styles.css
+  s_dfba45c15a7b0c::t_104fe4fb5556be 8,11
+  s_dfba45c15a7b0c::t_1e91ab15ff96bf 10
+  s_dfba45c15a7b0c::t_3b108f3c34f37e 12-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "9c76bbb97ba6729d9e398eab37fad9690c9bca4c",
+  "prompts": {},
+  "sessions": {
+    "s_dfba45c15a7b0c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a101d9-cea4-7622-acf9-f6ec60279579",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Anton Taklionak <anton.taklionak@viber.com>",
+      "token_usage": {
+        "input_tokens": 5427,
+        "output_tokens": 2769,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 1529472
+      },
+      "billing_source": "subscription"
+    }
+  }
+}
