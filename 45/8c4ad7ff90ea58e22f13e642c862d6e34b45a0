@@ -1,0 +1,38 @@
+corpus/cafe-most.md
+  s_dfba45c15a7b0c::t_de8ab10fc8b52f 1-31
+corpus/cafe-atelier.md
+  s_dfba45c15a7b0c::t_de8ab10fc8b52f 1-31
+README.md
+  s_dfba45c15a7b0c::t_8ec21b68929bba 5-6
+server/indexing/pipeline.test.js
+  s_dfba45c15a7b0c::t_8ec21b68929bba 21,23-26
+corpus/manifest.json
+  s_dfba45c15a7b0c::t_de8ab10fc8b52f 3-7
+corpus/cafe-pristan.md
+  s_dfba45c15a7b0c::t_de8ab10fc8b52f 1-31
+corpus/cafe-zeleny-sad.md
+  s_dfba45c15a7b0c::t_de8ab10fc8b52f 1-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "458c4ad7ff90ea58e22f13e642c862d6e34b45a0",
+  "prompts": {},
+  "sessions": {
+    "s_dfba45c15a7b0c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a101d9-cea4-7622-acf9-f6ec60279579",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Anton Taklionak <anton.taklionak@viber.com>",
+      "token_usage": {
+        "input_tokens": 165623,
+        "output_tokens": 4411,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 1426816
+      },
+      "billing_source": "subscription"
+    }
+  }
+}
