@@ -1,0 +1,37 @@
+src/main.jsx
+  s_dfba45c15a7b0c::t_d83e86a319393b 34-35,65-79,108
+server/index.js
+  s_dfba45c15a7b0c::t_cf7d78e1fde5ab 84-85
+server/ChatRepository.js
+  s_dfba45c15a7b0c::t_cf7d78e1fde5ab 77,117-118
+  s_dfba45c15a7b0c::t_bdf8e583221798 119-120
+server/ChatRepository.test.js
+  s_dfba45c15a7b0c::t_cf7d78e1fde5ab 37-47
+src/styles.css
+  s_dfba45c15a7b0c::t_d83e86a319393b 7,15-17
+server/index.test.js
+  s_dfba45c15a7b0c::t_cf7d78e1fde5ab 64-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "07c784954fbc497d9a82bccb20ee4a6d376243ba",
+  "prompts": {},
+  "sessions": {
+    "s_dfba45c15a7b0c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a101d9-cea4-7622-acf9-f6ec60279579",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Anton Taklionak <anton.taklionak@viber.com>",
+      "token_usage": {
+        "input_tokens": 11285,
+        "output_tokens": 3295,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 1828480
+      },
+      "billing_source": "subscription"
+    }
+  }
+}
