@@ -74,6 +74,7 @@ export class ChatRepository {
       (id, conversation_id, role, content, context_found, sources_json, quotes_json, retrieval_json, settings_json, duration_ms, created_at)
       VALUES (@id, @conversationId, @role, @content, @contextFound, @sourcesJson, @quotesJson, @retrievalJson, @settingsJson, @durationMs, @createdAt)`);
     this.updateConversation = this.database.prepare('UPDATE conversations SET title = ?, task_state_json = ?, updated_at = ? WHERE id = ?');
+    this.deleteConversations = this.database.prepare('DELETE FROM conversations');
     this.persistTurn = this.database.transaction((conversationId, userContent, assistant, taskState, title) => {
       const now = new Date().toISOString();
       this.insertMessage.run({ id: randomUUID(), conversationId, role: 'user', content: userContent, contextFound: null, sourcesJson: null, quotesJson: null, retrievalJson: null, settingsJson: null, durationMs: null, createdAt: now });
@@ -111,6 +112,10 @@ export class ChatRepository {
     if (!this.selectConversation.get(id)) return null;
     this.persistTurn(id, userContent, assistant, taskState, title);
     return this.getConversation(id);
+  }
+
+  clearConversations() {
+    return this.deleteConversations.run().changes;
   }
 
   close() { this.database.close(); }

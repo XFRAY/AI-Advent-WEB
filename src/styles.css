@@ -4,7 +4,7 @@ html, body, #root { min-height: 100%; }
 body { margin: 0; background: radial-gradient(circle at 75% 0%, rgba(120,220,202,.09), transparent 34%), #0d1210; }
 .app-shell { display: grid; grid-template-columns: 260px minmax(0, 1fr); height: 100vh; overflow: hidden; }
 .desktop-sidebar { border-right: 1px solid rgba(255,255,255,.1); background: rgba(19,27,23,.94); }
-.conversation-sidebar { width: 260px; min-height: 100%; }
+.conversation-sidebar { display: flex; flex-direction: column; width: 260px; height: 100%; min-height: 100%; }
 .sidebar-heading { position: relative; height: 58px; padding: 0 14px 0 16px; border-bottom: 1px solid rgba(255,255,255,.08); }
 .sidebar-heading .MuiTypography-root { display: flex; align-items: center; line-height: 1; }
 .new-chat-button { position: absolute !important; top: 50%; left: 80px; width: 36px; height: 36px; padding: 0 !important; transform: translateY(-50%); }
@@ -12,6 +12,9 @@ body { margin: 0; background: radial-gradient(circle at 75% 0%, rgba(120,220,202
 .plus-glyph::before, .plus-glyph::after { content: ''; position: absolute; display: block; border-radius: 2px; background: currentColor; }
 .plus-glyph::before { left: 1px; top: 8px; width: 16px; height: 2px; }
 .plus-glyph::after { left: 8px; top: 1px; width: 2px; height: 16px; }
+.conversation-list { flex: 1; overflow-y: auto; }
+.sidebar-footer { padding: 14px; border-top: 1px solid rgba(255,255,255,.08); }
+.sidebar-footer button { height: 40px; }
 .chat-main { display: flex !important; flex-direction: column; gap: 16px; height: 100vh; padding-top: 24px; padding-bottom: 24px; }
 .app-header { min-height: 68px; flex: 0 0 auto; }
 .app-title h3 { font-size: clamp(2rem, 3vw, 2.75rem); line-height: 1.05; }

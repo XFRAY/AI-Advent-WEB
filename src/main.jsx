@@ -31,8 +31,8 @@ function MemoryPanel({ state }) {
   return <Paper variant="outlined" className="memory-panel"><Typography variant="overline" color="primary">ПАМЯТЬ ЗАДАЧИ</Typography>{items.map(([label, values]) => <Box key={label} mt={1.5}><Typography variant="caption" color="text.secondary">{label}</Typography>{values.length ? values.map(value => <Typography variant="body2" key={value}>• {value}</Typography>) : <Typography variant="body2" color="text.disabled">Не зафиксировано</Typography>}</Box>)}<Box mt={1.5}><Typography variant="caption" color="text.secondary">Термины</Typography>{state?.terms?.length ? state.terms.map(item => <Typography variant="body2" key={item.term}><b>{item.term}</b> — {item.meaning}</Typography>) : <Typography variant="body2" color="text.disabled">Не зафиксированы</Typography>}</Box></Paper>;
 }
 
-function ConversationList({ conversations, activeId, onSelect, onCreate, disabled }) {
-  return <Box className="conversation-sidebar"><Stack className="sidebar-heading" direction="row" justifyContent="space-between" alignItems="center"><Typography fontWeight={850}>Диалоги</Typography><IconButton className="new-chat-button" color="primary" onClick={onCreate} disabled={disabled} aria-label="Новый диалог"><span className="plus-glyph" aria-hidden="true" /></IconButton></Stack><List>{conversations.map(item => <ListItemButton key={item.id} selected={item.id === activeId} onClick={() => onSelect(item.id)} disabled={disabled}><ListItemText primary={item.title} secondary={`${item.messageCount} сообщений`} primaryTypographyProps={{ noWrap: true, fontWeight: 700 }} /></ListItemButton>)}</List></Box>;
+function ConversationList({ conversations, activeId, onSelect, onCreate, onClear, disabled }) {
+  return <Box className="conversation-sidebar"><Stack className="sidebar-heading" direction="row" justifyContent="space-between" alignItems="center"><Typography fontWeight={850}>Диалоги</Typography><IconButton className="new-chat-button" color="primary" onClick={onCreate} disabled={disabled} aria-label="Новый диалог"><span className="plus-glyph" aria-hidden="true" /></IconButton></Stack><List className="conversation-list">{conversations.map(item => <ListItemButton key={item.id} selected={item.id === activeId} onClick={() => onSelect(item.id)} disabled={disabled}><ListItemText primary={item.title} secondary={`${item.messageCount} сообщений`} primaryTypographyProps={{ noWrap: true, fontWeight: 700 }} /></ListItemButton>)}</List><Box className="sidebar-footer"><Button fullWidth color="error" variant="outlined" onClick={onClear} disabled={disabled || !conversations.length}>Очистить все чаты</Button></Box></Box>;
 }
 
 function App() {
@@ -59,6 +59,21 @@ function App() {
     setBusy(true); setError('');
     try { const data = await request('/api/conversations', { method: 'POST', body: '{}' }); setConversation(data.conversation); localStorage.setItem('day25-conversation', data.conversation.id); setConversations((await request('/api/conversations')).conversations); setMobileOpen(false); }
     catch (nextError) { setError(nextError.message); }
+    finally { setBusy(false); }
+  }
+
+  async function clearConversations() {
+    if (!window.confirm('Удалить все диалоги и их историю? Это действие нельзя отменить.')) return;
+    setBusy(true); setError('');
+    try {
+      await request('/api/conversations', { method: 'DELETE' });
+      localStorage.removeItem('day25-conversation');
+      const data = await request('/api/conversations', { method: 'POST', body: '{}' });
+      setConversation(data.conversation);
+      setConversations((await request('/api/conversations')).conversations);
+      localStorage.setItem('day25-conversation', data.conversation.id);
+      setMobileOpen(false);
+    } catch (nextError) { setError(nextError.message); }
     finally { setBusy(false); }
   }
 
@@ -90,7 +105,7 @@ function App() {
   }
 
   const fields = useMemo(() => settings ? [['candidateTopK', 'Кандидаты', 1, 20, 1], ['resultTopK', 'В контексте', 1, settings.candidateTopK, 1], ['similarityThreshold', 'Порог', -1, 1, .01]] : [], [settings]);
-  const sidebar = <ConversationList conversations={conversations} activeId={activeId} onSelect={loadConversation} onCreate={createConversation} disabled={busy} />;
+  const sidebar = <ConversationList conversations={conversations} activeId={activeId} onSelect={loadConversation} onCreate={createConversation} onClear={clearConversations} disabled={busy} />;
   return <Box className="app-shell"><Box component="aside" className="desktop-sidebar">{sidebar}</Box><Drawer open={mobileOpen} onClose={() => setMobileOpen(false)}>{sidebar}</Drawer><Container maxWidth="xl" component="main" className="chat-main"><Stack className="app-header" direction="row" gap={1} alignItems="center"><IconButton className="mobile-menu" onClick={() => setMobileOpen(true)}>☰</IconButton><Box className="app-title" flex={1}><Typography variant="overline" color="primary">AI ADVENT · ДЕНЬ 25</Typography><Typography variant="h3">RAG-чат с памятью</Typography></Box><Stack className="index-actions" direction="row" alignItems="center"><Chip className="index-status" color={ready ? 'success' : 'warning'} label={ready ? 'индекс готов' : 'индекс не готов'} /><Button className="index-button" variant="outlined" onClick={buildIndex} disabled={busy}>{ready ? 'Переиндексировать' : 'Построить индекс'}</Button></Stack></Stack>{error && <Alert severity="error">{error}</Alert>}<Box className="workspace-grid"><Box className="chat-column"><Paper variant="outlined" className="conversation-heading"><Typography fontWeight={850}>{conversation?.title ?? 'Загрузка…'}</Typography><Typography variant="caption" color="text.secondary">История сохраняется в SQLite</Typography></Paper><Box className="message-list">{!conversation?.messages.length && <Box className="empty-chat"><Typography variant="h6">Начните диалог</Typography><Typography color="text.secondary">Опишите цель и задайте вопрос к локальной базе знаний.</Typography></Box>}{conversation?.messages.map(message => <Message key={message.id} message={message} />)}</Box><Paper component="form" onSubmit={submit} variant="outlined" className="composer"><TextField fullWidth multiline minRows={2} maxRows={6} label="Сообщение" value={question} onChange={event => setQuestion(event.target.value)} inputProps={{ maxLength: 2000 }} disabled={busy} /><Button type="submit" variant="contained" disabled={busy || !question.trim() || !ready || invalidSettings}>{busy ? <CircularProgress size={22} /> : 'Отправить'}</Button></Paper></Box><Stack className="context-column"><MemoryPanel state={conversation?.taskState} /><Paper variant="outlined" className="settings-panel-v2"><Typography variant="overline" color="secondary">RETRIEVAL</Typography>{fields.map(([key, label, min, max, step]) => <TextField key={key} size="small" type="number" label={label} value={settings[key]} onChange={event => setSettings({ ...settings, [key]: Number(event.target.value) })} inputProps={{ min, max, step }} disabled={busy} />)}{invalidSettings && <Typography variant="caption" color="error">Проверьте значения retrieval.</Typography>}</Paper></Stack></Box></Container></Box>;
 }
 

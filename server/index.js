@@ -81,6 +81,8 @@ export function createApp({ embedder, generator, chatAgent, chatRepository, data
 
   app.post('/api/conversations', (_req, res) => res.status(201).json({ conversation: repository.createConversation() }));
 
+  app.delete('/api/conversations', (_req, res) => res.json({ deleted: repository.clearConversations() }));
+
   app.get('/api/conversations/:id', (req, res) => {
     const conversation = repository.getConversation(req.params.id);
     if (!conversation) return res.status(404).json({ error: 'Диалог не найден.' });

@@ -61,6 +61,16 @@ test('conversation API creates, lists, restores, and appends grounded turns', as
   await request(server).get('/api/conversations/missing').expect(404);
 });
 
+test('conversation API clears every saved chat', async t => {
+  const { server } = await fixture(t);
+  await request(server).post('/api/conversations').send({}).expect(201);
+  await request(server).post('/api/conversations').send({}).expect(201);
+  const response = await request(server).delete('/api/conversations').expect(200);
+  assert.equal(response.body.deleted, 2);
+  const list = await request(server).get('/api/conversations').expect(200);
+  assert.deepEqual(list.body.conversations, []);
+});
+
 test('chat persists explicit do-not-know response without sources', async t => {
   const { server } = await fixture(t);
   await request(server).post('/api/index/build').send({}).expect(200);

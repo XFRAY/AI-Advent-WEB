@@ -34,3 +34,14 @@ test('saveTurn does not write partial data when transaction fails', t => {
   assert.throws(() => repository.saveTurn(conversation.id, { userContent: 'Вопрос', assistant: { ...assistant, answer: null }, taskState: state, title: 'Вопрос' }));
   assert.equal(repository.getConversation(conversation.id).messages.length, 0);
 });
+
+test('clearConversations removes all chats and cascades their messages', t => {
+  const repository = new ChatRepository({ databasePath: ':memory:' });
+  t.after(() => repository.close());
+  const first = repository.createConversation();
+  repository.createConversation();
+  repository.saveTurn(first.id, { userContent: 'Вопрос', assistant, taskState: state, title: 'Вопрос' });
+  assert.equal(repository.clearConversations(), 2);
+  assert.deepEqual(repository.listConversations(), []);
+  assert.equal(repository.database.prepare('SELECT COUNT(*) AS count FROM messages').get().count, 0);
+});
