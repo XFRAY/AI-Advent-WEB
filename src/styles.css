@@ -5,9 +5,14 @@ body { margin: 0; background: radial-gradient(circle at 75% 0%, rgba(120,220,202
 .app-shell { display: grid; grid-template-columns: 260px minmax(0, 1fr); height: 100vh; overflow: hidden; }
 .desktop-sidebar { border-right: 1px solid rgba(255,255,255,.1); background: rgba(19,27,23,.94); }
 .conversation-sidebar { width: 260px; min-height: 100%; }
+.sidebar-heading { height: 58px; padding: 0 14px 0 16px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.sidebar-heading .MuiTypography-root { display: flex; align-items: center; line-height: 1; }
+.new-chat-button { width: 36px; height: 36px; padding: 0 !important; font-size: 1.65rem !important; line-height: 1 !important; }
 .chat-main { display: flex !important; flex-direction: column; gap: 16px; height: 100vh; padding-top: 24px; padding-bottom: 24px; }
 .app-header { min-height: 68px; flex: 0 0 auto; }
 .app-title h3 { font-size: clamp(2rem, 3vw, 2.75rem); line-height: 1.05; }
+.index-actions { gap: 10px; flex: 0 0 auto; }
+.index-status { height: 42px !important; }
 .index-button { min-width: 168px !important; height: 42px; padding: 0 18px !important; }
 .workspace-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; flex: 1; min-height: 0; }
 .chat-column { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid rgba(255,255,255,.13); border-radius: 16px; overflow: hidden; background: rgba(18,26,22,.48); }
@@ -24,10 +29,10 @@ body { margin: 0; background: radial-gradient(circle at 75% 0%, rgba(120,220,202
 .quote-card { border-left: 3px solid #f4b860 !important; }
 .composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 14px; border: 0 !important; border-top: 1px solid rgba(255,255,255,.12) !important; border-radius: 0 !important; background: rgba(24,33,29,.96) !important; }
 .composer button { min-width: 120px; height: 56px; align-self: center; }
-.context-column { min-height: 0; overflow-y: auto; padding-right: 2px; }
+.context-column { min-height: 0; overflow-y: auto; padding-right: 2px; gap: 16px !important; }
 .memory-panel, .settings-panel-v2 { padding: 18px; }
 .settings-panel-v2 { display: grid; gap: 12px; }
 .empty-chat { display: grid; place-content: center; min-height: 100%; text-align: center; padding: 32px 20px; }
 .mobile-menu { display: none !important; }
 @media (max-width: 1050px) { .app-shell { display: block; height: auto; min-height: 100vh; overflow: visible; } .desktop-sidebar { display: none; } .mobile-menu { display: inline-flex !important; } .chat-main { height: auto; min-height: 100vh; } .workspace-grid { grid-template-columns: minmax(0, 1fr) 280px; min-height: 680px; } }
-@media (max-width: 760px) { .chat-main { padding-top: 16px; padding-bottom: 16px; } .app-header { flex-wrap: wrap; } .app-title { flex-basis: calc(100% - 52px); } .app-header > .MuiChip-root { margin-left: 52px; } .index-button { min-width: 0 !important; height: 38px; } .workspace-grid { grid-template-columns: 1fr; min-height: 0; } .chat-column { min-height: 620px; } .message-list { min-height: 320px; } .composer { grid-template-columns: 1fr; } .composer button { width: 100%; } .context-column { overflow: visible; } .source-grid { grid-template-columns: 1fr; } .message-card { max-width: 96%; } h3 { font-size: 2rem !important; } }
+@media (max-width: 760px) { .chat-main { padding-top: 16px; padding-bottom: 16px; } .app-header { flex-wrap: wrap; } .app-title { flex-basis: calc(100% - 52px); } .index-actions { width: 100%; margin-left: 52px; } .index-status, .index-button { height: 38px !important; } .index-button { min-width: 0 !important; } .workspace-grid { grid-template-columns: 1fr; min-height: 0; } .chat-column { min-height: 620px; } .message-list { min-height: 320px; } .composer { grid-template-columns: 1fr; } .composer button { width: 100%; } .context-column { overflow: visible; } .source-grid { grid-template-columns: 1fr; } .message-card { max-width: 96%; } h3 { font-size: 2rem !important; } }
