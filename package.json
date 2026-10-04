@@ -11,8 +11,7 @@
     "preview": "vite preview",
     "start": "node server/index.js",
     "test": "node --test server/indexing/*.test.js server/*.test.js",
-    "index": "node server/indexing/cli.js",
-    "corpus:pdf": "node scripts/generate-corpus-pdf.js"
+    "index": "node server/indexing/cli.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -24,7 +23,6 @@
     "dotenv": "^17.2.2",
     "express": "^5.1.0",
     "openai": "^5.19.1",
-    "pdfjs-dist": "^4.10.38",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "vite": "^7.1.5"

@@ -43,7 +43,6 @@ npm run dev
 - `POST /api/conversations/:id/messages` — отправить сообщение.
 - `GET /api/index` и `POST /api/index/build` — состояние и построение RAG-индекса.
 - `GET /api/documents/file?path=...` — открыть документ из корпуса.
-- `POST /api/answer` — совместимый одиночный grounded-запрос Day 24.
 
 Пример нового сообщения:
 

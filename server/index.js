@@ -1,16 +1,13 @@
 import 'dotenv/config';
-import fs from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import express from 'express';
 import { ChatAgent } from './ChatAgent.js';
 import { ChatRepository } from './ChatRepository.js';
-import { DEFAULT_RAG_SETTINGS, GroundingValidationError, RagAgent, createOpenAIGenerator, resolveRagSettings } from './RagAgent.js';
+import { DEFAULT_RAG_SETTINGS, GroundingValidationError, createOpenAIGenerator, resolveRagSettings } from './RagCore.js';
 import { loadCorpus } from './indexing/corpus.js';
 import { createOpenAIEmbedder, EmbeddingConfigurationError } from './indexing/embeddings.js';
 import { buildIndex } from './indexing/pipeline.js';
 import { readIndexSummary } from './indexing/store.js';
-
-const evaluationPath = fileURLToPath(new URL('../corpus/evaluation.json', import.meta.url));
 
 function envNumber(name, fallback) {
   const value = process.env[name];
@@ -25,14 +22,13 @@ export function readRagDefaults() {
   });
 }
 
-export function createApp({ embedder, generator, agent, chatAgent, chatRepository, databasePath, indexesDir, manifestPath, questionsPath = evaluationPath, ragDefaults = readRagDefaults() } = {}) {
+export function createApp({ embedder, generator, chatAgent, chatRepository, databasePath, indexesDir, manifestPath, ragDefaults = readRagDefaults() } = {}) {
   const app = express();
   let building = false;
   const getEmbedder = () => embedder ?? createOpenAIEmbedder();
   const getGenerator = () => generator ?? createOpenAIGenerator();
   const repository = chatRepository ?? new ChatRepository({ databasePath });
   let chatAgentInstance = chatAgent;
-  const getAgent = () => agent ?? new RagAgent({ embedder: getEmbedder(), generator: getGenerator(), indexesDir, defaults: ragDefaults });
   const getChatAgent = () => {
     chatAgentInstance ??= new ChatAgent({ repository, embedder: getEmbedder(), generator: getGenerator(), indexesDir, defaults: ragDefaults });
     return chatAgentInstance;
@@ -68,14 +64,6 @@ export function createApp({ embedder, generator, agent, chatAgent, chatRepositor
     }
   });
 
-  app.get('/api/evaluation/questions', async (_req, res) => {
-    try {
-      res.json({ questions: JSON.parse(await fs.readFile(questionsPath, 'utf8')) });
-    } catch (error) {
-      res.status(500).json({ error: `Не удалось прочитать контрольный набор: ${error.message}` });
-    }
-  });
-
   app.get('/api/documents/file', async (req, res) => {
     try {
       const corpus = await loadCorpus({ manifestPath });
@@ -86,15 +74,6 @@ export function createApp({ embedder, generator, agent, chatAgent, chatRepositor
       });
     } catch (error) {
       res.status(500).json({ error: `Не удалось открыть файл: ${error.message}` });
-    }
-  });
-
-  app.post('/api/answer', async (req, res) => {
-    try {
-      res.json(await getAgent().answer(req.body?.question, req.body?.settings));
-    } catch (error) {
-      const message = error instanceof TypeError || error instanceof GroundingValidationError ? error.message : 'Не удалось получить ответ.';
-      res.status(error instanceof TypeError ? 400 : 502).json({ error: message });
     }
   });
 

@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks';
-import { GROUNDED_ANSWER_FORMAT, GroundingValidationError, NO_RELEVANT_CONTEXT, buildRagInput, filterCandidates, resolveRagSettings, validateGroundedAnswer } from './RagAgent.js';
+import { GROUNDED_ANSWER_FORMAT, GroundingValidationError, NO_RELEVANT_CONTEXT, buildRagInput, filterCandidates, resolveRagSettings, validateGroundedAnswer } from './RagCore.js';
 import { searchIndex } from './indexing/search.js';
 
 export const TASK_STATE_FORMAT = Object.freeze({

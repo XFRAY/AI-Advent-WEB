@@ -24,7 +24,7 @@ export async function loadCorpus({ manifestPath = defaultManifestPath } = {}) {
   for (const entry of manifest.entries) {
     const target = path.resolve(base, entry.path);
     const stat = await fs.stat(target);
-    const files = stat.isDirectory() ? await listFiles(target, entry.extensions ?? ['.md', '.txt', '.js', '.jsx', '.pdf']) : [target];
+    const files = stat.isDirectory() ? await listFiles(target, entry.extensions ?? ['.md', '.txt']) : [target];
     for (const absolutePath of files) specs.push({ absolutePath, source: entry.source, relativePath: path.relative(projectRoot, absolutePath) });
   }
   const documents = await Promise.all(specs.map(parseDocument));
