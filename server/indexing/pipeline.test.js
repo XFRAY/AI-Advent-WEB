@@ -18,12 +18,12 @@ async function fixture() {
   return { root, manifestPath: path.join(root, 'manifest.json'), indexesDir: path.join(root, 'indexes') };
 }
 
-test('bundled corpus contains the simple Markdown knowledge source', async () => {
+test('bundled corpus contains five cafe knowledge sources', async () => {
   const corpus = await loadCorpus();
-  assert.equal(corpus.stats.documents, 1);
-  assert.equal(corpus.stats.types.markdown, 1);
-  assert.equal(corpus.documents[0].file, 'corpus/cafe-sever.md');
-  assert.match(corpus.documents[0].text, /Кафе «Север»/);
+  assert.equal(corpus.stats.documents, 5);
+  assert.equal(corpus.stats.types.markdown, 5);
+  assert.deepEqual(new Set(corpus.documents.map(item => item.source)), new Set(['cafe-sever', 'cafe-most', 'cafe-zeleny-sad', 'cafe-pristan', 'cafe-atelier']));
+  assert.ok(corpus.documents.every(item => /Кафе/.test(item.text)));
 });
 
 test('pipeline writes structured index and search returns top-k local chunks', async t => {

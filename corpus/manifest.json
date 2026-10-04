@@ -1,5 +1,9 @@
 {
   "entries": [
-    { "path": "cafe-sever.md", "source": "cafe-handbook" }
+    { "path": "cafe-sever.md", "source": "cafe-sever" },
+    { "path": "cafe-most.md", "source": "cafe-most" },
+    { "path": "cafe-zeleny-sad.md", "source": "cafe-zeleny-sad" },
+    { "path": "cafe-pristan.md", "source": "cafe-pristan" },
+    { "path": "cafe-atelier.md", "source": "cafe-atelier" }
   ]
 }
