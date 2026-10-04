@@ -32,7 +32,7 @@ function MemoryPanel({ state }) {
 }
 
 function ConversationList({ conversations, activeId, onSelect, onCreate, disabled }) {
-  return <Box className="conversation-sidebar"><Stack className="sidebar-heading" direction="row" justifyContent="space-between" alignItems="center"><Typography fontWeight={850}>Диалоги</Typography><IconButton className="new-chat-button" color="primary" onClick={onCreate} disabled={disabled} aria-label="Новый диалог">＋</IconButton></Stack><List>{conversations.map(item => <ListItemButton key={item.id} selected={item.id === activeId} onClick={() => onSelect(item.id)} disabled={disabled}><ListItemText primary={item.title} secondary={`${item.messageCount} сообщений`} primaryTypographyProps={{ noWrap: true, fontWeight: 700 }} /></ListItemButton>)}</List></Box>;
+  return <Box className="conversation-sidebar"><Stack className="sidebar-heading" direction="row" justifyContent="space-between" alignItems="center"><Typography fontWeight={850}>Диалоги</Typography><IconButton className="new-chat-button" color="primary" onClick={onCreate} disabled={disabled} aria-label="Новый диалог"><span className="plus-glyph" aria-hidden="true" /></IconButton></Stack><List>{conversations.map(item => <ListItemButton key={item.id} selected={item.id === activeId} onClick={() => onSelect(item.id)} disabled={disabled}><ListItemText primary={item.title} secondary={`${item.messageCount} сообщений`} primaryTypographyProps={{ noWrap: true, fontWeight: 700 }} /></ListItemButton>)}</List></Box>;
 }
 
 function App() {
