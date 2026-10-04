@@ -1,0 +1,43 @@
+server/ChatAgent.js
+  s_dfba45c15a7b0c::t_67cbc10797ce6f 2
+package.json
+  s_dfba45c15a7b0c::t_8c8685dcbfd2b3 14
+server/indexing/corpus.js
+  s_dfba45c15a7b0c::t_a37146a8196cd0 27
+server/index.test.js
+  s_dfba45c15a7b0c::t_0dfd6319a45a28 26,31,34-36,39-42,44,47-50,52,55,57,59,61-73,75-80,85-89,98,102-103,105
+  s_dfba45c15a7b0c::t_2f9b49b5f6c90a 74,81
+server/index.js
+  s_dfba45c15a7b0c::t_67cbc10797ce6f 6,25
+server/RagCore.test.js
+  s_dfba45c15a7b0c::t_67cbc10797ce6f 3,5-6,9,16,19-22,25,29,32
+server/RagCore.js
+  s_dfba45c15a7b0c::t_2e3161cd916a99 10,12,15,52,62,92
+server/indexing/parsers.test.js
+  s_dfba45c15a7b0c::t_a37146a8196cd0 3
+server/indexing/pipeline.test.js
+  s_dfba45c15a7b0c::t_0dfd8457fa7e50 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "03109087c57c435c5d678ffdf199b8a6ec201c50",
+  "prompts": {},
+  "sessions": {
+    "s_dfba45c15a7b0c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a101d9-cea4-7622-acf9-f6ec60279579",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Anton Taklionak <anton.taklionak@viber.com>",
+      "token_usage": {
+        "input_tokens": 32709,
+        "output_tokens": 14062,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 3181440
+      },
+      "billing_source": "subscription"
+    }
+  }
+}
