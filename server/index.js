@@ -1,38 +1,91 @@
 import 'dotenv/config';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import express from 'express';
-import { ChatAgent } from './ChatAgent.js';
-import { ChatRepository } from './ChatRepository.js';
-import { DEFAULT_RAG_SETTINGS, GroundingValidationError, createOpenAIGenerator, resolveRagSettings } from './RagCore.js';
-import { loadCorpus } from './indexing/corpus.js';
-import { createOpenAIEmbedder, EmbeddingConfigurationError } from './indexing/embeddings.js';
-import { buildIndex } from './indexing/pipeline.js';
-import { readIndexSummary } from './indexing/store.js';
 
-function envNumber(name, fallback) {
-  const value = process.env[name];
-  return value === undefined || value === '' ? fallback : Number(value);
+export const DEFAULT_MODEL = 'qwen3:1.7b';
+export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
+
+function cleanBaseUrl(value) {
+  try {
+    const url = new URL(value || DEFAULT_OLLAMA_URL);
+    if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    throw new TypeError('OLLAMA_BASE_URL должен быть корректным HTTP URL.');
+  }
 }
 
-export function readRagDefaults() {
-  return resolveRagSettings({
-    candidateTopK: envNumber('RAG_CANDIDATE_TOP_K', DEFAULT_RAG_SETTINGS.candidateTopK),
-    resultTopK: envNumber('RAG_RESULT_TOP_K', DEFAULT_RAG_SETTINGS.resultTopK),
-    similarityThreshold: envNumber('RAG_SIMILARITY_THRESHOLD', DEFAULT_RAG_SETTINGS.similarityThreshold),
-  });
+function normalizeName(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase().replace(/:latest$/, '') : '';
 }
 
-export function createApp({ embedder, generator, chatAgent, chatRepository, databasePath, indexesDir, manifestPath, ragDefaults = readRagDefaults() } = {}) {
-  const app = express();
-  let building = false;
-  const getEmbedder = () => embedder ?? createOpenAIEmbedder();
-  const getGenerator = () => generator ?? createOpenAIGenerator();
-  const repository = chatRepository ?? new ChatRepository({ databasePath });
-  let chatAgentInstance = chatAgent;
-  const getChatAgent = () => {
-    chatAgentInstance ??= new ChatAgent({ repository, embedder: getEmbedder(), generator: getGenerator(), indexesDir, defaults: ragDefaults });
-    return chatAgentInstance;
+function hasModel(models, requested) {
+  const target = normalizeName(requested);
+  return models.some(item => normalizeName(item.name || item.model) === target);
+}
+
+async function readJson(response) {
+  try { return await response.json(); }
+  catch { return {}; }
+}
+
+export function createOllamaClient({ baseUrl = process.env.OLLAMA_BASE_URL || DEFAULT_OLLAMA_URL, model = process.env.OLLAMA_MODEL || DEFAULT_MODEL, fetchImpl = globalThis.fetch } = {}) {
+  const endpoint = cleanBaseUrl(baseUrl);
+  const selectedModel = model.trim() || DEFAULT_MODEL;
+
+  async function call(path, options = {}) {
+    let response;
+    try {
+      response = await fetchImpl(`${endpoint}${path}`, { ...options, signal: AbortSignal.timeout(120_000) });
+    } catch (error) {
+      const unavailable = new Error('Ollama недоступен. Запустите `ollama serve` и повторите попытку.');
+      unavailable.code = 'OLLAMA_UNAVAILABLE';
+      unavailable.cause = error;
+      throw unavailable;
+    }
+    const data = await readJson(response);
+    if (!response.ok) {
+      const failure = new Error(data.error || `Ollama вернул HTTP ${response.status}.`);
+      failure.code = 'OLLAMA_ERROR';
+      throw failure;
+    }
+    return data;
+  }
+
+  return {
+    model: selectedModel,
+    baseUrl: endpoint,
+    async status() {
+      const [version, tags] = await Promise.all([call('/api/version'), call('/api/tags')]);
+      const models = Array.isArray(tags.models) ? tags.models : [];
+      return { available: true, version: version.version || null, model: selectedModel, modelReady: hasModel(models, selectedModel) };
+    },
+    async chat(message) {
+      const status = await this.status();
+      if (!status.modelReady) {
+        const missing = new Error(`Модель ${selectedModel} не установлена. Выполните \`ollama pull ${selectedModel}\`.`);
+        missing.code = 'MODEL_MISSING';
+        throw missing;
+      }
+      const data = await call('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: selectedModel, messages: [{ role: 'user', content: message }], stream: false, think: false }),
+      });
+      const content = data.message?.content?.trim();
+      if (!content) {
+        const invalid = new Error('Ollama вернул пустой ответ.');
+        invalid.code = 'OLLAMA_ERROR';
+        throw invalid;
+      }
+      return { content, model: data.model || selectedModel, totalDurationNs: data.total_duration || null, evalCount: data.eval_count || null };
+    },
   };
+}
+
+export function createApp({ ollamaClient } = {}) {
+  const app = express();
+  const ollama = ollamaClient || createOllamaClient();
 
   app.use('/api', (req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -42,65 +95,28 @@ export function createApp({ embedder, generator, chatAgent, chatRepository, data
   });
   app.use(express.json({ limit: '16kb' }));
 
-  app.get('/api/index', async (_req, res) => {
-    try {
-      const [corpus, index] = await Promise.all([loadCorpus({ manifestPath }), readIndexSummary(indexesDir)]);
-      res.json({ building, corpus: corpus.stats, index, ragDefaults });
-    } catch (error) {
-      res.status(500).json({ error: `Не удалось прочитать базу знаний: ${error.message}` });
+  app.get('/api/llm/status', async (_req, res) => {
+    try { res.json(await ollama.status()); }
+    catch (error) {
+      const status = error.code === 'OLLAMA_UNAVAILABLE' ? 503 : 502;
+      res.status(status).json({ available: false, model: ollama.model, modelReady: false, error: error.message });
     }
   });
 
-  app.post('/api/index/build', async (_req, res) => {
-    if (building) return res.status(409).json({ error: 'Индексация уже выполняется.' });
-    building = true;
+  app.post('/api/llm/chat', async (req, res) => {
+    const message = req.body?.message;
+    if (typeof message !== 'string' || !message.trim() || message.length > 4_000) return res.status(400).json({ error: 'Введите сообщение от 1 до 4000 символов.' });
+    const started = performance.now();
     try {
-      res.json(await buildIndex({ embedder: getEmbedder(), indexesDir, manifestPath }));
+      const answer = await ollama.chat(message.trim());
+      res.json({ ...answer, durationMs: Math.round(performance.now() - started), local: true });
     } catch (error) {
-      const status = error instanceof EmbeddingConfigurationError ? 503 : error instanceof TypeError ? 400 : 502;
-      res.status(status).json({ error: error instanceof EmbeddingConfigurationError ? error.message : `Не удалось построить индекс: ${error.message}` });
-    } finally {
-      building = false;
+      const status = error.code === 'OLLAMA_UNAVAILABLE' || error.code === 'MODEL_MISSING' ? 503 : 502;
+      res.status(status).json({ error: error.message });
     }
   });
 
-  app.get('/api/documents/file', async (req, res) => {
-    try {
-      const corpus = await loadCorpus({ manifestPath });
-      const document = corpus.documents.find(item => item.file === req.query.path);
-      if (!document) return res.status(404).json({ error: 'Файл не входит в базу знаний.' });
-      res.sendFile(document.absolutePath, { dotfiles: 'deny' }, error => {
-        if (error && !res.headersSent) res.status(404).json({ error: 'Файл не найден.' });
-      });
-    } catch (error) {
-      res.status(500).json({ error: `Не удалось открыть файл: ${error.message}` });
-    }
-  });
-
-  app.get('/api/conversations', (_req, res) => res.json({ conversations: repository.listConversations() }));
-
-  app.post('/api/conversations', (_req, res) => res.status(201).json({ conversation: repository.createConversation() }));
-
-  app.delete('/api/conversations', (_req, res) => res.json({ deleted: repository.clearConversations() }));
-
-  app.get('/api/conversations/:id', (req, res) => {
-    const conversation = repository.getConversation(req.params.id);
-    if (!conversation) return res.status(404).json({ error: 'Диалог не найден.' });
-    res.json({ conversation });
-  });
-
-  app.post('/api/conversations/:id/messages', async (req, res) => {
-    try {
-      const result = await getChatAgent().answer(req.params.id, req.body?.content, req.body?.settings);
-      if (!result) return res.status(404).json({ error: 'Диалог не найден.' });
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof TypeError || error instanceof GroundingValidationError ? error.message : 'Не удалось получить ответ.';
-      res.status(error instanceof TypeError ? 400 : 502).json({ error: message });
-    }
-  });
-
-  app.get('/api/health', (_req, res) => res.json({ ok: true, building }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true }));
   app.use('/api', (_req, res) => res.status(404).json({ error: 'API-маршрут не найден.' }));
   app.use(express.static(fileURLToPath(new URL('../dist', import.meta.url))));
   app.use((error, _req, res, _next) => res.status(error.type === 'entity.too.large' ? 413 : 400).json({ error: 'Некорректный запрос.' }));
@@ -109,5 +125,5 @@ export function createApp({ embedder, generator, chatAgent, chatRepository, data
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT || 3001);
-  createApp().listen(port, '127.0.0.1', () => console.log(`День 25 · RAG-чат с памятью: http://127.0.0.1:${port}`));
+  createApp().listen(port, '127.0.0.1', () => console.log(`День 26 · локальная LLM: http://127.0.0.1:${port}`));
 }
