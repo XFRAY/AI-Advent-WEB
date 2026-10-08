@@ -4,6 +4,9 @@ import express from 'express';
 
 export const DEFAULT_MODEL = 'qwen3:1.7b';
 export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
+export const MAX_MESSAGES = 40;
+export const MAX_MESSAGE_LENGTH = 4_000;
+export const MAX_CONTEXT_LENGTH = 32_000;
 
 function cleanBaseUrl(value) {
   try {
@@ -60,7 +63,7 @@ export function createOllamaClient({ baseUrl = process.env.OLLAMA_BASE_URL || DE
       const models = Array.isArray(tags.models) ? tags.models : [];
       return { available: true, version: version.version || null, model: selectedModel, modelReady: hasModel(models, selectedModel) };
     },
-    async chat(message) {
+    async chat(messages) {
       const status = await this.status();
       if (!status.modelReady) {
         const missing = new Error(`Модель ${selectedModel} не установлена. Выполните \`ollama pull ${selectedModel}\`.`);
@@ -70,7 +73,7 @@ export function createOllamaClient({ baseUrl = process.env.OLLAMA_BASE_URL || DE
       const data = await call('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: selectedModel, messages: [{ role: 'user', content: message }], stream: false, think: false }),
+        body: JSON.stringify({ model: selectedModel, messages, stream: false, think: false }),
       });
       const content = data.message?.content?.trim();
       if (!content) {
@@ -93,7 +96,7 @@ export function createApp({ ollamaClient } = {}) {
     if (req.method === 'POST' && !req.is('application/json')) return res.status(415).json({ error: 'Ожидается JSON.' });
     next();
   });
-  app.use(express.json({ limit: '16kb' }));
+  app.use(express.json({ limit: '128kb' }));
 
   app.get('/api/llm/status', async (_req, res) => {
     try { res.json(await ollama.status()); }
@@ -104,11 +107,34 @@ export function createApp({ ollamaClient } = {}) {
   });
 
   app.post('/api/llm/chat', async (req, res) => {
-    const message = req.body?.message;
-    if (typeof message !== 'string' || !message.trim() || message.length > 4_000) return res.status(400).json({ error: 'Введите сообщение от 1 до 4000 символов.' });
+    const messages = req.body?.messages;
+    if (!Array.isArray(messages) || messages.length === 0 || messages.length > MAX_MESSAGES) {
+      return res.status(400).json({ error: `История должна содержать от 1 до ${MAX_MESSAGES} сообщений.` });
+    }
+
+    let contextLength = 0;
+    const normalizedMessages = [];
+    for (const message of messages) {
+      if (!message || !['user', 'assistant'].includes(message.role) || typeof message.content !== 'string') {
+        return res.status(400).json({ error: 'Каждое сообщение должно содержать роль user или assistant и текст.' });
+      }
+      const content = message.content.trim();
+      if (!content || content.length > MAX_MESSAGE_LENGTH) {
+        return res.status(400).json({ error: `Длина каждого сообщения должна быть от 1 до ${MAX_MESSAGE_LENGTH} символов.` });
+      }
+      contextLength += content.length;
+      normalizedMessages.push({ role: message.role, content });
+    }
+    if (contextLength > MAX_CONTEXT_LENGTH) {
+      return res.status(400).json({ error: `Общий контекст не должен превышать ${MAX_CONTEXT_LENGTH} символов.` });
+    }
+    if (normalizedMessages.at(-1).role !== 'user') {
+      return res.status(400).json({ error: 'Последнее сообщение в истории должно быть от пользователя.' });
+    }
+
     const started = performance.now();
     try {
-      const answer = await ollama.chat(message.trim());
+      const answer = await ollama.chat(normalizedMessages);
       res.json({ ...answer, durationMs: Math.round(performance.now() - started), local: true });
     } catch (error) {
       const status = error.code === 'OLLAMA_UNAVAILABLE' || error.code === 'MODEL_MISSING' ? 503 : 502;
@@ -125,5 +151,5 @@ export function createApp({ ollamaClient } = {}) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT || 3001);
-  createApp().listen(port, '127.0.0.1', () => console.log(`День 26 · локальная LLM: http://127.0.0.1:${port}`));
+  createApp().listen(port, '127.0.0.1', () => console.log(`День 27 · локальный чат с памятью: http://127.0.0.1:${port}`));
 }

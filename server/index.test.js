@@ -15,7 +15,7 @@ function response(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
-function fetchDouble({ models = [{ name: 'qwen3:1.7b' }], chat = { model: 'qwen3:1.7b', message: { content: 'Локальный ответ' }, total_duration: 10, eval_count: 4 } } = {}) {
+function fetchDouble({ models = [{ name: 'qwen3:1.7b' }], chat = { model: 'qwen3:1.7b', message: { content: 'Локальный ответ' }, total_duration: 10, eval_count: 4 }, onChat } = {}) {
   return async (url, options = {}) => {
     if (url.endsWith('/api/version')) return response({ version: '0.12.6' });
     if (url.endsWith('/api/tags')) return response({ models });
@@ -24,6 +24,7 @@ function fetchDouble({ models = [{ name: 'qwen3:1.7b' }], chat = { model: 'qwen3
       assert.equal(body.model, 'qwen3:1.7b');
       assert.equal(body.stream, false);
       assert.equal(body.think, false);
+      onChat?.(body);
       return response(chat);
     }
     return response({ error: 'missing' }, 404);
@@ -36,25 +37,38 @@ test('status reports Ollama version and installed model', async t => {
   assert.deepEqual(result.body, { available: true, version: '0.12.6', model: 'qwen3:1.7b', modelReady: true });
 });
 
-test('chat returns a local answer and generation metadata', async t => {
-  const server = await listeningServer(t, createApp({ ollamaClient: createOllamaClient({ fetchImpl: fetchDouble() }) }));
-  const result = await request(server).post('/api/llm/chat').send({ message: 'Привет!' }).expect(200);
+test('chat passes the full conversation to Ollama and returns generation metadata', async t => {
+  let receivedMessages;
+  const fetchImpl = fetchDouble({ onChat: body => { receivedMessages = body.messages; } });
+  const server = await listeningServer(t, createApp({ ollamaClient: createOllamaClient({ fetchImpl }) }));
+  const messages = [
+    { role: 'user', content: 'Меня зовут Антон.' },
+    { role: 'assistant', content: 'Приятно познакомиться!' },
+    { role: 'user', content: 'Как меня зовут?' },
+  ];
+  const result = await request(server).post('/api/llm/chat').send({ messages }).expect(200);
   assert.equal(result.body.content, 'Локальный ответ');
   assert.equal(result.body.local, true);
   assert.equal(result.body.model, 'qwen3:1.7b');
   assert.equal(result.body.evalCount, 4);
   assert.equal(typeof result.body.durationMs, 'number');
+  assert.deepEqual(receivedMessages, messages);
 });
 
-test('chat validates empty and oversized messages', async t => {
+test('chat validates history, roles, messages and total context size', async t => {
   const server = await listeningServer(t, createApp({ ollamaClient: createOllamaClient({ fetchImpl: fetchDouble() }) }));
-  await request(server).post('/api/llm/chat').send({ message: '  ' }).expect(400);
-  await request(server).post('/api/llm/chat').send({ message: 'x'.repeat(4_001) }).expect(400);
+  await request(server).post('/api/llm/chat').send({ messages: [] }).expect(400);
+  await request(server).post('/api/llm/chat').send({ messages: Array.from({ length: 41 }, () => ({ role: 'user', content: 'x' })) }).expect(400);
+  await request(server).post('/api/llm/chat').send({ messages: [{ role: 'system', content: 'Nope' }] }).expect(400);
+  await request(server).post('/api/llm/chat').send({ messages: [{ role: 'user', content: '  ' }] }).expect(400);
+  await request(server).post('/api/llm/chat').send({ messages: [{ role: 'user', content: 'x'.repeat(4_001) }] }).expect(400);
+  await request(server).post('/api/llm/chat').send({ messages: Array.from({ length: 9 }, (_, index) => ({ role: index === 8 ? 'user' : index % 2 ? 'assistant' : 'user', content: 'x'.repeat(4_000) })) }).expect(400);
+  await request(server).post('/api/llm/chat').send({ messages: [{ role: 'assistant', content: 'Готово' }] }).expect(400);
 });
 
 test('missing model returns an actionable 503', async t => {
   const server = await listeningServer(t, createApp({ ollamaClient: createOllamaClient({ fetchImpl: fetchDouble({ models: [{ name: 'other:latest' }] }) }) }));
-  const result = await request(server).post('/api/llm/chat').send({ message: 'Привет' }).expect(503);
+  const result = await request(server).post('/api/llm/chat').send({ messages: [{ role: 'user', content: 'Привет' }] }).expect(503);
   assert.match(result.body.error, /ollama pull qwen3:1.7b/);
 });
 
@@ -63,14 +77,14 @@ test('unavailable Ollama returns 503 for status and chat', async t => {
   const server = await listeningServer(t, createApp({ ollamaClient: client }));
   let result = await request(server).get('/api/llm/status').expect(503);
   assert.equal(result.body.available, false);
-  result = await request(server).post('/api/llm/chat').send({ message: 'Привет' }).expect(503);
+  result = await request(server).post('/api/llm/chat').send({ messages: [{ role: 'user', content: 'Привет' }] }).expect(503);
   assert.match(result.body.error, /ollama serve/);
 });
 
 test('upstream Ollama failure and unknown API route are controlled', async t => {
   const fetchImpl = async url => url.endsWith('/api/version') ? response({ version: '1' }) : url.endsWith('/api/tags') ? response({ models: [{ name: 'qwen3:1.7b' }] }) : response({ error: 'generation failed' }, 500);
   const server = await listeningServer(t, createApp({ ollamaClient: createOllamaClient({ fetchImpl }) }));
-  const result = await request(server).post('/api/llm/chat').send({ message: 'Привет' }).expect(502);
+  const result = await request(server).post('/api/llm/chat').send({ messages: [{ role: 'user', content: 'Привет' }] }).expect(502);
   assert.equal(result.body.error, 'generation failed');
   await request(server).get('/api/nope').expect(404);
 });

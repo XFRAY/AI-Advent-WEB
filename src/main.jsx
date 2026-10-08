@@ -67,35 +67,36 @@ function App() {
     event?.preventDefault();
     const content = input.trim();
     if (!content || busy) return;
-    setMessages(items => [...items, { role: 'user', content }]);
+    const nextMessages = [...messages, { role: 'user', content }];
+    setMessages(nextMessages);
     setInput(''); setBusy(true); setError('');
     try {
-      const answer = await request('/api/llm/chat', { method: 'POST', body: JSON.stringify({ message: content }) });
+      const answer = await request('/api/llm/chat', { method: 'POST', body: JSON.stringify({ messages: nextMessages.map(({ role, content: text }) => ({ role, content: text })) }) });
       setMessages(items => [...items, { role: 'assistant', ...answer }]);
       if (!status?.modelReady) await checkStatus();
-    } catch (nextError) { setError(nextError.message); setInput(content); }
+    } catch (nextError) { setMessages(messages); setError(nextError.message); setInput(content); }
     finally { setBusy(false); }
   }
 
   const ready = status?.available && status?.modelReady;
   return <Box className="page-shell">
     <Box component="header" className="topbar">
-      <Stack direction="row" alignItems="center" gap={1.2}><Box className="mark">26</Box><Typography fontWeight={850}>AI ADVENT</Typography></Stack>
+      <Stack direction="row" alignItems="center" gap={1.2}><Box className="mark">27</Box><Typography fontWeight={850}>AI ADVENT</Typography></Stack>
       <Stack direction="row" gap={1}><Button className="clear-button" onClick={() => { setMessages([]); setInput(''); setError(''); }} disabled={(!messages.length && !input && !error) || busy}>Очистить</Button><IconButton className="refresh-button" onClick={checkStatus} disabled={checking || busy} aria-label="Проверить подключение">↻</IconButton></Stack>
     </Box>
 
     <Box component="main" className="main-grid">
       <Box className="intro-column">
-        <Typography variant="overline" color="primary">ДЕНЬ 26 · LOCAL FIRST</Typography>
-        <Typography variant="h1">Модель рядом.<br/><span>Без облака.</span></Typography>
-        <Typography className="lead" color="text.secondary">Qwen работает прямо на этом компьютере. Сообщение уходит в локальный Ollama API и никуда больше.</Typography>
+        <Typography variant="overline" color="primary">ДЕНЬ 27 · CONTEXT MEMORY</Typography>
+        <Typography variant="h1">Диалог,<br/><span>который помнит.</span></Typography>
+        <Typography className="lead" color="text.secondary">Qwen получает историю текущего разговора и понимает уточнения. Контекст живёт только в этой вкладке и обрабатывается локально.</Typography>
         <StatusBadge status={status} checking={checking} />
         {status?.available && !status.modelReady && <Alert severity="warning">Запустите <code>ollama pull {status.model}</code></Alert>}
-        <Box className="local-proof"><span>↳</span><Typography variant="body2"><b>Локальный маршрут</b><br/>Browser → Express → Ollama :11434</Typography></Box>
+        <Box className="local-proof"><span>↳</span><Typography variant="body2"><b>Память без базы данных</b><br/>История вкладки → Express → Ollama :11434</Typography></Box>
       </Box>
 
       <Paper className="chat-panel" variant="outlined">
-        <Box className="chat-head"><Box><Typography variant="overline" color="secondary">LIVE SESSION</Typography><Typography variant="h6" fontWeight={800}>Диалог с Qwen</Typography></Box><Chip label={status?.version ? `Ollama ${status.version}` : 'Ollama'} variant="outlined" /></Box>
+        <Box className="chat-head"><Box><Typography variant="overline" color="secondary">SESSION MEMORY · {messages.length} СООБЩ.</Typography><Typography variant="h6" fontWeight={800}>Диалог с Qwen</Typography></Box><Chip label={status?.version ? `Ollama ${status.version}` : 'Ollama'} variant="outlined" /></Box>
         <Box className="chat-scroll">
           {!messages.length && <Box className="empty-state"><Typography variant="h5" fontWeight={800}>Проверьте модель тремя способами</Typography><Typography color="text.secondary">Выберите пример или напишите собственный запрос.</Typography><Box className="example-grid">{examples.map(example => <button key={example.level} className="example-card" onClick={() => setInput(example.prompt)}><span>{example.level}</span><b>{example.title}</b><small>{example.prompt}</small></button>)}</Box></Box>}
           {messages.map((item, index) => <Message key={`${item.role}-${index}`} item={item} />)}
@@ -108,7 +109,7 @@ function App() {
             <TextField multiline minRows={2} maxRows={6} fullWidth placeholder="Спросите локальную модель…" value={input} onChange={event => setInput(event.target.value)} inputProps={{ maxLength: 4000 }} disabled={busy} />
             <Button type="submit" variant="contained" disabled={busy || !input.trim() || !ready}>{busy ? <CircularProgress size={22} /> : 'Отправить →'}</Button>
           </Box>
-          <Typography className="privacy-note" variant="caption">Ответы не сохраняются · API-ключ не требуется</Typography>
+          <Typography className="privacy-note" variant="caption">Контекст хранится до перезагрузки вкладки · API-ключ не требуется</Typography>
         </Box>
       </Paper>
     </Box>

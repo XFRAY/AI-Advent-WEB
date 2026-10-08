@@ -1,5 +1,5 @@
 {
-  "name": "ai-advent-day-26-local-llm",
+  "name": "ai-advent-day-27-context-memory",
   "version": "1.0.0",
   "private": true,
   "type": "module",
