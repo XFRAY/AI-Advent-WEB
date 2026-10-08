@@ -1,0 +1,41 @@
+server/index.js
+  s_5a9ae0e1560229::t_7e81e8d9e8336c 99
+  s_5a9ae0e1560229::t_9e087aa83a7325 7-9,66,76,110-134,137,154
+index.html
+  s_5a9ae0e1560229::t_9e087aa83a7325 12
+  s_5a9ae0e1560229::t_6020f817813556 11
+server/index.test.js
+  s_5a9ae0e1560229::t_1f670760ed255f 18,27,40-49,55,58,60,62-66,71,80,87
+  s_5a9ae0e1560229::t_6020f817813556 61
+src/main.jsx
+  s_5a9ae0e1560229::t_9e087aa83a7325 70-71,74,77,84,90-92,95,99,112
+package.json
+  s_5a9ae0e1560229::t_9e087aa83a7325 2
+README.md
+  s_5a9ae0e1560229::t_abc32d58989e52 1,3,5,7,9-10,13,15,17,20-21,24-26,36,40-60,62,64-67,69,76
+package-lock.json
+  s_5a9ae0e1560229::t_7173b1ee83f32d 2,8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "69ca7ba922e1d3ca1f5777932a71395f3db3c1b8",
+  "prompts": {},
+  "sessions": {
+    "s_5a9ae0e1560229": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a116b9-28c7-7831-b502-e57506abed46",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Anton Taklionak <anton.taklionak@viber.com>",
+      "token_usage": {
+        "input_tokens": 131226,
+        "output_tokens": 13925,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 2259584
+      },
+      "billing_source": "subscription"
+    }
+  }
+}
