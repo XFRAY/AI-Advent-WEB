@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Alert, Box, Button, Chip, CircularProgress, CssBaseline, LinearProgress, Paper, Stack, TextField, ThemeProvider, Typography, createTheme } from '@mui/material';
 import './styles.css';
 
-const theme = createTheme({ palette: { mode: 'dark', primary: { main: '#d7ff64', contrastText: '#10140b' }, secondary: { main: '#8ee8ff' }, background: { default: '#090b08', paper: '#141812' } }, typography: { fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', h1: { fontWeight: 850, letterSpacing: '-.055em' }, button: { fontWeight: 750, textTransform: 'none' } }, shape: { borderRadius: 18 } });
-
-const examples = ['В каком кафе есть веганские блюда и Wi-Fi?', 'Где можно позавтракать рано утром?', 'Какое кафе подходит для работы с ноутбуком?'];
+const theme = createTheme({ palette: { mode: 'dark', primary: { main: '#c6ff4a', contrastText: '#10130a' }, secondary: { main: '#78d9ff' }, background: { default: '#080a08', paper: '#141712' } }, typography: { fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', h1: { fontWeight: 850, letterSpacing: '-.055em' }, button: { fontWeight: 750, textTransform: 'none' } }, shape: { borderRadius: 16 } });
+const examples = ['Почему launch в viewModelScope безопаснее GlobalScope?', 'Покажи sealed interface для состояния экрана загрузки.', 'Как исправить утечку Context во ViewModel?'];
+const voteOptions = [['baseline', 'Лучше до'], ['optimized', 'Лучше после'], ['equal', 'Равны'], ['neither', 'Оба мимо']];
 
 async function request(path, options = {}) {
   const response = await fetch(path, { ...options, headers: options.body ? { 'Content-Type': 'application/json' } : undefined });
@@ -13,48 +13,80 @@ async function request(path, options = {}) {
   if (!response.ok) throw new Error(data.error || 'Не удалось выполнить запрос.');
   return data;
 }
-
+function bytes(value) { if (!Number.isFinite(value)) return '—'; return value >= 1e9 ? `${(value / 1e9).toFixed(2)} ГБ` : `${Math.round(value / 1e6)} МБ`; }
+function duration(value) { return Number.isFinite(value) ? `${(value / 1000).toFixed(2)} с` : '—'; }
 function StateChip({ ok, children }) { return <Chip size="small" color={ok ? 'primary' : 'default'} variant={ok ? 'filled' : 'outlined'} label={`${ok ? '●' : '○'} ${children}`} />; }
 
-function AnswerCard({ title, subtitle, result, rating, onRate, accent }) {
-  const success = result?.status === 'success';
-  return <Paper className={`answer-card ${accent}`} variant="outlined">
-    <Stack direction="row" justifyContent="space-between" gap={2} alignItems="flex-start"><Box><Typography variant="overline" color={accent === 'local' ? 'primary' : 'secondary'}>{title}</Typography><Typography variant="caption" display="block" color="text.secondary">{subtitle}</Typography></Box><StateChip ok={success}>{success ? 'стабильно' : result?.status === 'unavailable' ? 'не настроено' : 'ошибка'}</StateChip></Stack>
-    {success ? <>
-      <Typography className="answer-text">{result.answer}</Typography>
-      <Stack direction="row" gap={1} flexWrap="wrap"><Chip size="small" label={`${(result.durationMs / 1000).toFixed(1)} сек.`} /><Chip size="small" label={`grounding ✓`} /><Chip size="small" label={`${result.sources.length} источн.`} />{result.evalCount && <Chip size="small" label={`${result.evalCount} токенов`} />}</Stack>
-      <Box className="rating"><Typography variant="caption" color="text.secondary">Качество ответа:</Typography><Button size="small" variant={rating === 'up' ? 'contained' : 'text'} onClick={() => onRate('up')}>Полезен</Button><Button size="small" variant={rating === 'down' ? 'contained' : 'text'} color="warning" onClick={() => onRate('down')}>Не помог</Button></Box>
-    </> : <Alert severity={result?.status === 'unavailable' ? 'info' : 'error'}>{result?.error || 'Ответ ещё не получен.'}</Alert>}
+function ProfileCard({ profile, accent }) {
+  if (!profile) return null;
+  return <Paper className={`profile-card ${accent}`} variant="outlined">
+    <Stack direction="row" justifyContent="space-between" gap={1}><Typography variant="overline" color={accent === 'after' ? 'primary' : 'secondary'}>{profile.label}</Typography><StateChip ok={profile.installed}>{profile.installed ? 'готово' : 'нет модели'}</StateChip></Stack>
+    <Typography fontWeight={850}>{profile.model}</Typography>
+    <Box className="parameter-grid"><span>quant</span><b>{profile.quantization}</b><span>temperature</span><b>{profile.options.temperature}</b><span>context</span><b>{profile.options.num_ctx}</b><span>max tokens</span><b>{profile.options.num_predict}</b><span>диск</span><b>{bytes(profile.sizeBytes)}</b></Box>
   </Paper>;
 }
 
-function App() {
-  const [status, setStatus] = useState(null); const [input, setInput] = useState(''); const [result, setResult] = useState(null);
-  const [busy, setBusy] = useState(false); const [building, setBuilding] = useState(false); const [error, setError] = useState(''); const [ratings, setRatings] = useState({});
-  const loadStatus = useCallback(async () => { try { setStatus(await request('/api/rag/status')); } catch (next) { setError(next.message); } }, []);
-  useEffect(() => { loadStatus(); }, [loadStatus]);
-
-  async function build() { setBuilding(true); setError(''); try { await request('/api/rag/index', { method: 'POST', body: '{}' }); await loadStatus(); } catch (next) { setError(next.message); } finally { setBuilding(false); } }
-  async function compare(event) { event.preventDefault(); if (!input.trim() || busy) return; setBusy(true); setError(''); setResult(null); setRatings({}); try { setResult(await request('/api/rag/compare', { method: 'POST', body: JSON.stringify({ question: input.trim() }) })); } catch (next) { setError(next.message); } finally { setBusy(false); } }
-  const ready = status?.local.ready && status?.embedding.ready && status?.index.compatible;
-
-  return <Box className="page-shell">
-    <Box component="header" className="topbar"><Stack direction="row" alignItems="center" gap={1.2}><Box className="mark">28</Box><Typography fontWeight={850}>AI ADVENT</Typography></Stack><Button variant="outlined" onClick={loadStatus}>Обновить статус</Button></Box>
-    <Box component="main" className="rag-layout">
-      <Box className="hero"><Typography variant="overline" color="primary">ДЕНЬ 28 · LOCAL RAG</Typography><Typography variant="h1">Знания рядом.<br/><span>Ответы локально.</span></Typography><Typography className="lead" color="text.secondary">Embedding, поиск и Qwen работают через Ollama на вашем компьютере. Облако подключается только для честного сравнения.</Typography>
-        <Paper className="pipeline" variant="outlined"><Typography fontWeight={800}>Локальный pipeline</Typography><Stack direction="row" gap={1} flexWrap="wrap"><StateChip ok={status?.embedding.ready}>{status?.embedding.model || 'embeddinggemma'}</StateChip><span>→</span><StateChip ok={status?.index.compatible}>индекс</StateChip><span>→</span><StateChip ok={status?.local.ready}>{status?.local.model || 'qwen3:1.7b'}</StateChip></Stack><Typography variant="caption" color="text.secondary">{status?.corpus ? `${status.corpus.documents} документов · ${status.corpus.tokens} токенов` : 'Проверяем корпус…'}</Typography><Button variant={status?.index.compatible ? 'outlined' : 'contained'} onClick={build} disabled={building || !status?.embedding.ready}>{building ? 'Строим индекс…' : status?.index.compatible ? 'Пересобрать индекс' : 'Построить локальный индекс'}</Button></Paper>
-        <Stack direction="row" gap={1} mt={2}><StateChip ok={status?.cloud.configured}>{status?.cloud.configured ? status.cloud.model : 'облако опционально'}</StateChip><StateChip ok={status?.ollama.available}>{status?.ollama.available ? `Ollama ${status.ollama.version || ''}` : 'Ollama offline'}</StateChip></Stack>
-      </Box>
-      <Paper className="workspace" variant="outlined">
-        <Box className="answer-area">
-          {busy && <Box className="loading-state"><LinearProgress /><Typography color="text.secondary">Локальный поиск завершится быстро; генерация Qwen может занять до минуты.</Typography></Box>}{error && <Alert severity="error" className="page-error">{error}</Alert>}
-          {!result && !busy && <Box className="empty"><Typography variant="h4">Один контекст. Две модели.</Typography><Typography color="text.secondary">Обе модели получают одни и те же четыре локально найденных фрагмента.</Typography>{!ready && <Typography color="warning.main">Подготовьте Ollama и совместимый локальный индекс.</Typography>}</Box>}
-          {result && <Box className="results"><Paper className="retrieval-strip" variant="outlined"><b>Retrieval: {result.retrieval.durationMs} мс</b><span>{result.retrieval.model}</span><span>{result.retrieval.sources.length} чанка</span></Paper><Box className="comparison"><AnswerCard title="QWEN · ЛОКАЛЬНО" subtitle="Ollama · данные не покидают компьютер" result={result.local} rating={ratings.local} onRate={value => setRatings(current => ({ ...current, local: value }))} accent="local"/><AnswerCard title="ОБЛАЧНАЯ МОДЕЛЬ" subtitle="Тот же retrieved-контекст" result={result.cloud} rating={ratings.cloud} onRate={value => setRatings(current => ({ ...current, cloud: value }))} accent="cloud"/></Box><Box className="sources"><Typography variant="overline">ИСТОЧНИКИ RETRIEVAL</Typography>{result.retrieval.sources.map(source => <Paper key={source.chunkId} variant="outlined"><b>{source.label} · {source.section}</b><span>{source.file}</span><Chip size="small" label={source.score.toFixed(3)} /></Paper>)}</Box></Box>}
-        </Box>
-        <Box component="form" className="question-box" onSubmit={compare}><Typography variant="h5" fontWeight={850}>Сравнить ответы</Typography><TextField multiline minRows={2} maxRows={5} fullWidth value={input} onChange={event => setInput(event.target.value)} placeholder="Задайте вопрос по базе кафе…" inputProps={{ maxLength: 2000 }} disabled={busy} /><Stack direction="row" gap={1} flexWrap="wrap">{examples.map(example => <Button key={example} size="small" variant="text" onClick={() => setInput(example)}>{example}</Button>)}</Stack><Button type="submit" variant="contained" size="large" disabled={!ready || busy || !input.trim()}>{busy ? <CircularProgress size={22} /> : 'Запустить сравнение'}</Button></Box>
-      </Paper>
-    </Box>
-  </Box>;
+function Metrics({ result }) {
+  if (result?.status !== 'success') return null;
+  const m = result.metrics || {}; const r = result.resources || {};
+  return <Box className="metrics"><span><b>{duration(m.wallMs)}</b> ответ</span><span><b>{m.tokensPerSecond ?? '—'}</b> ток/с</span><span><b>{m.outputTokens ?? '—'}</b> токенов</span><span><b>{bytes(r.residentBytes)}</b> RAM</span><span><b>{bytes(r.vramBytes)}</b> VRAM</span></Box>;
 }
 
-createRoot(document.getElementById('root')).render(<React.StrictMode><ThemeProvider theme={theme}><CssBaseline /><App /></ThemeProvider></React.StrictMode>);
+function Answer({ result, kind }) {
+  const success = result?.status === 'success';
+  return <Paper className={`answer-card ${kind}`} variant="outlined">
+    <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}><Typography variant="overline" color={kind === 'optimized' ? 'primary' : 'secondary'}>{kind === 'baseline' ? 'ДО · Q8' : 'ПОСЛЕ · Q4'}</Typography><Chip size="small" variant="outlined" label={result?.model || 'модель'} /></Stack>
+    {success ? <><Typography className="answer-text">{result.answer}</Typography><Metrics result={result} /></> : <Alert severity="error">{result?.error || 'Ответ не получен.'}</Alert>}
+  </Paper>;
+}
+
+function Vote({ value, onChange }) {
+  return <Box className="vote"><Typography variant="caption" color="text.secondary">Какой ответ качественнее?</Typography><Stack direction="row" gap={.5} flexWrap="wrap">{voteOptions.map(([id, label]) => <Button key={id} size="small" variant={value === id ? 'contained' : 'text'} onClick={() => onChange(id)}>{label}</Button>)}</Stack></Box>;
+}
+
+function Pair({ item, vote, onVote }) {
+  return <Box className="pair"><Box className="task-title">{item.category && <Chip size="small" label={item.category} />}<Box><Typography fontWeight={850}>{item.title || 'Произвольный вопрос'}</Typography><Typography variant="body2" color="text.secondary">{item.prompt}</Typography></Box></Box><Box className="comparison"><Answer result={item.baseline} kind="baseline"/><Answer result={item.optimized} kind="optimized"/></Box><Vote value={vote} onChange={onVote}/></Box>;
+}
+
+function ChatTurn({ item, vote, onVote }) {
+  return <Box className="chat-turn"><Box className="user-row"><Paper className="user-bubble">{item.prompt}</Paper></Box><Box className="assistant-row"><Box className="comparison"><Answer result={item.baseline} kind="baseline"/><Answer result={item.optimized} kind="optimized"/></Box><Vote value={vote} onChange={onVote}/></Box></Box>;
+}
+
+function Summary({ tasks, votes }) {
+  const successful = tasks.flatMap(task => [task.baseline, task.optimized]).filter(item => item.status === 'success');
+  const byProfile = key => tasks.map(task => task[key]).filter(item => item.status === 'success');
+  const average = (items, field) => items.length ? items.reduce((sum, item) => sum + (item.metrics?.[field] || 0), 0) / items.length : null;
+  const baseline = byProfile('baseline'); const optimized = byProfile('optimized');
+  const counts = Object.values(votes).reduce((acc, vote) => ({ ...acc, [vote]: (acc[vote] || 0) + 1 }), {});
+  return <Paper className="summary" variant="outlined"><Typography variant="overline" color="primary">ИТОГ ЭКСПЕРИМЕНТА</Typography><Box className="summary-grid"><span><b>{Object.keys(votes).length}/{tasks.length}</b> оценено</span><span><b>{counts.optimized || 0}</b> побед «после»</span><span><b>{duration(average(baseline, 'wallMs'))}</b> среднее до</span><span><b>{duration(average(optimized, 'wallMs'))}</b> среднее после</span><span><b>{Math.round(average(baseline, 'tokensPerSecond') || 0)}</b> ток/с до</span><span><b>{Math.round(average(optimized, 'tokensPerSecond') || 0)}</b> ток/с после</span></Box>{successful.length === 0 && <Alert severity="warning">Нет успешных измерений.</Alert>}</Paper>;
+}
+
+function App() {
+  const [status, setStatus] = useState(null); const [input, setInput] = useState(examples[0]); const [history, setHistory] = useState([]); const [pendingPrompt, setPendingPrompt] = useState(''); const [tasks, setTasks] = useState([]);
+  const [mode, setMode] = useState('compare'); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [chatVotes, setChatVotes] = useState({}); const [benchmarkVotes, setBenchmarkVotes] = useState({});
+  const historyEndRef = useRef(null);
+  const loadStatus = useCallback(async () => { try { setStatus(await request('/api/optimization/status')); } catch (next) { setError(next.message); } }, []);
+  useEffect(() => { loadStatus(); }, [loadStatus]);
+  const ready = status?.ollama.available && status?.profiles.baseline.installed && status?.profiles.optimized.installed;
+  const voteSummary = useMemo(() => Object.values(benchmarkVotes).filter(Boolean), [benchmarkVotes]);
+  useEffect(() => { if (mode === 'compare') historyEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [history, pendingPrompt, mode]);
+
+  async function compare(event) { event.preventDefault(); if (!input.trim() || busy) return; const prompt = input.trim(); setBusy(true); setError(''); setPendingPrompt(prompt); setInput(''); try { const data = await request('/api/optimization/compare', { method: 'POST', body: JSON.stringify({ prompt }) }); setHistory(current => [...current, { id: `${Date.now()}-${current.length}`, ...data }]); } catch (next) { setError(next.message); setInput(prompt); } finally { setPendingPrompt(''); setBusy(false); loadStatus(); } }
+  async function benchmark() { if (busy) return; setBusy(true); setError(''); setTasks([]); setBenchmarkVotes({}); try { const data = await request('/api/optimization/benchmark', { method: 'POST', body: '{}' }); setTasks(data.tasks); } catch (next) { setError(next.message); } finally { setBusy(false); loadStatus(); } }
+
+  return <Box className="page-shell"><Box component="header" className="topbar"><Stack direction="row" alignItems="center" gap={1.2}><Box className="mark">29</Box><Typography fontWeight={850}>AI ADVENT</Typography></Stack><Stack direction="row" gap={1}><StateChip ok={status?.ollama.available}>{status?.ollama.available ? `Ollama ${status.ollama.version || ''}` : 'Ollama offline'}</StateChip><Button variant="outlined" onClick={loadStatus}>Обновить</Button></Stack></Box>
+    <Box component="main" className="optimization-layout"><Box className="hero"><Typography variant="overline" color="primary">ДЕНЬ 29 · LOCAL LLM LAB</Typography><Typography variant="h1">Меньше веса.<br/><span>Больше пользы.</span></Typography><Typography className="lead" color="text.secondary">Оптимизируем локального Kotlin/Android-помощника: prompt, параметры и Q4-квантование против Q8-базы.</Typography><Box className="profiles"><ProfileCard profile={status?.profiles.baseline} accent="before"/><ProfileCard profile={status?.profiles.optimized} accent="after"/></Box></Box>
+      <Paper className="workspace" variant="outlined"><Box className="modebar"><Button variant={mode === 'compare' ? 'contained' : 'text'} onClick={() => setMode('compare')}>Чат</Button><Button variant={mode === 'benchmark' ? 'contained' : 'text'} onClick={() => setMode('benchmark')}>Benchmark · 4 задачи</Button>{mode === 'compare' && history.length > 0 && <Button className="clear-chat" size="small" color="inherit" onClick={() => { setHistory([]); setChatVotes({}); }}>Очистить</Button>}<Typography variant="caption" color="text.secondary">warm-up → замер → unload</Typography></Box>
+        <Box className="answer-area">{error && <Alert severity="error" className="page-error">{error}</Alert>}
+          {mode === 'compare' && history.length === 0 && !pendingPrompt && <Box className="empty chat-empty"><Typography variant="h4">История ответов появится здесь</Typography><Typography color="text.secondary">Каждый вопрос останется в списке вместе с ответами Q8 и Q4.</Typography>{!ready && <Alert severity="warning">Запустите Ollama и установите обе модели.</Alert>}</Box>}
+          {mode === 'compare' && (history.length > 0 || pendingPrompt) && <Box className="chat-history">{history.map(item => <ChatTurn key={item.id} item={item} vote={chatVotes[item.id]} onVote={value => setChatVotes(current => ({ ...current, [item.id]: value }))}/>)}{pendingPrompt && <Box className="chat-turn pending"><Box className="user-row"><Paper className="user-bubble">{pendingPrompt}</Paper></Box><Paper className="thinking-bubble" variant="outlined"><LinearProgress/><Typography variant="body2">Q8 и Q4 отвечают последовательно…</Typography></Paper></Box>}<div ref={historyEndRef}/></Box>}
+          {busy && mode === 'benchmark' && <Box className="loading-state"><LinearProgress/><Typography>Модели запускаются последовательно. Это может занять несколько минут.</Typography></Box>}
+          {!busy && mode === 'benchmark' && tasks.length === 0 && <Box className="empty"><Typography variant="h4">4 Android-задачи</Typography><Typography color="text.secondary">Kotlin, Coroutines, Lifecycle и Compose. После прогона оцените каждую пару.</Typography><Button variant="contained" size="large" disabled={!ready} onClick={benchmark}>Запустить benchmark</Button></Box>}
+          {!busy && mode === 'benchmark' && tasks.length > 0 && <Box className="results"><Summary tasks={tasks} votes={benchmarkVotes}/>{tasks.map(task => <Pair key={task.id} item={task} vote={benchmarkVotes[task.id]} onVote={value => setBenchmarkVotes(current => ({ ...current, [task.id]: value }))}/>)}</Box>}
+        </Box>
+        {mode === 'compare' && <Box component="form" className="question-box" onSubmit={compare}><TextField multiline minRows={2} maxRows={5} fullWidth value={input} onChange={event => setInput(event.target.value)} placeholder="Вопрос по Kotlin или Android…" inputProps={{ maxLength: 4000 }} disabled={busy}/><Button type="submit" variant="contained" size="large" disabled={!ready || busy || !input.trim()}>{busy ? <CircularProgress size={22}/> : 'Сравнить'}</Button><Stack direction="row" gap={.5} flexWrap="wrap">{examples.map(example => <Button key={example} size="small" onClick={() => setInput(example)}>{example}</Button>)}</Stack></Box>}
+        {mode === 'benchmark' && tasks.length > 0 && <Box className="benchmark-footer"><Typography variant="caption" color="text.secondary">Оценено: {voteSummary.length} из {tasks.length}</Typography><Button variant="outlined" disabled={busy || !ready} onClick={benchmark}>Повторить benchmark</Button></Box>}
+      </Paper></Box></Box>;
+}
+
+createRoot(document.getElementById('root')).render(<React.StrictMode><ThemeProvider theme={theme}><CssBaseline/><App/></ThemeProvider></React.StrictMode>);
