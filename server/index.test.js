@@ -1,90 +1,78 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import http from 'node:http';
 import request from 'supertest';
-import { createApp, createOllamaClient } from './index.js';
+import { createApp } from './index.js';
+import { buildIndex } from './indexing/pipeline.js';
 
 async function listeningServer(t, app) {
-  const server = http.createServer(app);
-  await new Promise((resolve, reject) => server.listen(0, '127.0.0.1', resolve).once('error', reject));
-  t.after(() => new Promise(resolve => server.close(resolve)));
-  return server;
+  const server = http.createServer(app); await new Promise((resolve, reject) => server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  t.after(() => new Promise(resolve => server.close(resolve))); return server;
 }
 
-function response(body, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+async function fixture(t, model = 'embeddinggemma') {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'day28-api-')); t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.writeFile(path.join(root, 'cafe.md'), '# Кафе Тест\nWi-Fi работает каждый день. Есть веганский завтрак.');
+  const manifestPath = path.join(root, 'manifest.json'); await fs.writeFile(manifestPath, JSON.stringify({ entries: [{ path: 'cafe.md', source: 'test-cafe' }] }));
+  const indexesDir = path.join(root, 'indexes');
+  const embedder = { model, async embed(texts) { return texts.map(text => [/wi-fi/iu.test(text) ? 1 : .1, /веган/iu.test(text) ? 1 : .1]); } };
+  return { manifestPath, indexesDir, embedder };
 }
 
-function fetchDouble({ models = [{ name: 'qwen3:1.7b' }], chat = { model: 'qwen3:1.7b', message: { content: 'Локальный ответ' }, total_duration: 10, eval_count: 4 }, onChat } = {}) {
-  return async (url, options = {}) => {
-    if (url.endsWith('/api/version')) return response({ version: '0.12.6' });
-    if (url.endsWith('/api/tags')) return response({ models });
-    if (url.endsWith('/api/chat')) {
-      const body = JSON.parse(options.body);
-      assert.equal(body.model, 'qwen3:1.7b');
-      assert.equal(body.stream, false);
-      assert.equal(body.think, false);
-      onChat?.(body);
-      return response(chat);
-    }
-    return response({ error: 'missing' }, 404);
-  };
-}
+const ollamaClient = { async status(models) { return { available: true, version: '1.0', models: Object.fromEntries(models.map(model => [model, true])) }; } };
+const grounded = { configured: true, model: 'model', async generate(_question, sources) { return { answer: `Wi-Fi доступен [S1]`, citations: [{ sourceLabel: 'S1', quote: 'Wi-Fi работает каждый день.' }], sources: [{ ...sources[0], text: undefined }], groundingPassed: true, model: this.model, durationMs: 10 }; } };
 
-test('status reports Ollama version and installed model', async t => {
-  const server = await listeningServer(t, createApp({ ollamaClient: createOllamaClient({ fetchImpl: fetchDouble() }) }));
-  const result = await request(server).get('/api/llm/status').expect(200);
-  assert.deepEqual(result.body, { available: true, version: '0.12.6', model: 'qwen3:1.7b', modelReady: true });
+test('status reports local models, cloud and compatible index', async t => {
+  const paths = await fixture(t); await buildIndex(paths);
+  const server = await listeningServer(t, createApp({ ...paths, ollamaClient, localGenerator: grounded, cloudGenerator: { ...grounded, configured: false } }));
+  const result = await request(server).get('/api/rag/status').expect(200);
+  assert.equal(result.body.local.ready, true); assert.equal(result.body.embedding.ready, true); assert.equal(result.body.index.compatible, true); assert.equal(result.body.cloud.configured, false);
 });
 
-test('chat passes the full conversation to Ollama and returns generation metadata', async t => {
-  let receivedMessages;
-  const fetchImpl = fetchDouble({ onChat: body => { receivedMessages = body.messages; } });
-  const server = await listeningServer(t, createApp({ ollamaClient: createOllamaClient({ fetchImpl }) }));
-  const messages = [
-    { role: 'user', content: 'Меня зовут Антон.' },
-    { role: 'assistant', content: 'Приятно познакомиться!' },
-    { role: 'user', content: 'Как меня зовут?' },
-  ];
-  const result = await request(server).post('/api/llm/chat').send({ messages }).expect(200);
-  assert.equal(result.body.content, 'Локальный ответ');
-  assert.equal(result.body.local, true);
-  assert.equal(result.body.model, 'qwen3:1.7b');
-  assert.equal(result.body.evalCount, 4);
-  assert.equal(typeof result.body.durationMs, 'number');
-  assert.deepEqual(receivedMessages, messages);
+test('compare uses one local retrieval for both generators and tolerates missing cloud', async t => {
+  const paths = await fixture(t); await buildIndex(paths); let received;
+  const localGenerator = { ...grounded, async generate(question, sources) { received = { question, sources }; return grounded.generate(question, sources); } };
+  const server = await listeningServer(t, createApp({ ...paths, ollamaClient, localGenerator, cloudGenerator: { model: 'cloud', configured: false } }));
+  const result = await request(server).post('/api/rag/compare').send({ question: 'Где есть Wi-Fi?' }).expect(200);
+  assert.equal(result.body.local.status, 'success'); assert.equal(result.body.cloud.status, 'unavailable'); assert.equal(received.sources[0].label, 'S1'); assert.deepEqual(result.body.retrieval.sources, received.sources.map(({ text: _text, ...source }) => source));
 });
 
-test('chat validates history, roles, messages and total context size', async t => {
-  const server = await listeningServer(t, createApp({ ollamaClient: createOllamaClient({ fetchImpl: fetchDouble() }) }));
-  await request(server).post('/api/llm/chat').send({ messages: [] }).expect(400);
-  await request(server).post('/api/llm/chat').send({ messages: Array.from({ length: 41 }, () => ({ role: 'user', content: 'x' })) }).expect(400);
-  await request(server).post('/api/llm/chat').send({ messages: [{ role: 'system', content: 'Nope' }] }).expect(400);
-  await request(server).post('/api/llm/chat').send({ messages: [{ role: 'user', content: '  ' }] }).expect(400);
-  await request(server).post('/api/llm/chat').send({ messages: [{ role: 'user', content: 'x'.repeat(4_001) }] }).expect(400);
-  await request(server).post('/api/llm/chat').send({ messages: Array.from({ length: 9 }, (_, index) => ({ role: index === 8 ? 'user' : index % 2 ? 'assistant' : 'user', content: 'x'.repeat(4_000) })) }).expect(400);
-  await request(server).post('/api/llm/chat').send({ messages: [{ role: 'assistant', content: 'Готово' }] }).expect(400);
+test('compare returns independent cloud error and validates questions', async t => {
+  const paths = await fixture(t); await buildIndex(paths);
+  const brokenCloud = { configured: true, model: 'cloud', async generate() { throw new Error('cloud offline'); } };
+  const server = await listeningServer(t, createApp({ ...paths, ollamaClient, localGenerator: grounded, cloudGenerator: brokenCloud }));
+  let result = await request(server).post('/api/rag/compare').send({ question: 'Wi-Fi?' }).expect(200);
+  assert.equal(result.body.local.status, 'success'); assert.equal(result.body.cloud.status, 'error'); assert.match(result.body.cloud.error, /offline/);
+  await request(server).post('/api/rag/compare').send({ question: ' ' }).expect(400);
 });
 
-test('missing model returns an actionable 503', async t => {
-  const server = await listeningServer(t, createApp({ ollamaClient: createOllamaClient({ fetchImpl: fetchDouble({ models: [{ name: 'other:latest' }] }) }) }));
-  const result = await request(server).post('/api/llm/chat').send({ messages: [{ role: 'user', content: 'Привет' }] }).expect(503);
-  assert.match(result.body.error, /ollama pull qwen3:1.7b/);
+test('missing and incompatible indexes request a rebuild', async t => {
+  const paths = await fixture(t);
+  let server = await listeningServer(t, createApp({ ...paths, ollamaClient, localGenerator: grounded, cloudGenerator: { model: 'cloud', configured: false } }));
+  await request(server).post('/api/rag/compare').send({ question: 'Wi-Fi?' }).expect(409);
+  await buildIndex({ ...paths, embedder: { ...paths.embedder, model: 'text-embedding-3-small' } });
+  const status = await request(server).get('/api/rag/status').expect(200); assert.equal(status.body.index.compatible, false);
+  await request(server).post('/api/rag/compare').send({ question: 'Wi-Fi?' }).expect(409);
 });
 
-test('unavailable Ollama returns 503 for status and chat', async t => {
-  const client = createOllamaClient({ fetchImpl: async () => { throw new Error('ECONNREFUSED'); } });
-  const server = await listeningServer(t, createApp({ ollamaClient: client }));
-  let result = await request(server).get('/api/llm/status').expect(503);
-  assert.equal(result.body.available, false);
-  result = await request(server).post('/api/llm/chat').send({ messages: [{ role: 'user', content: 'Привет' }] }).expect(503);
-  assert.match(result.body.error, /ollama serve/);
+test('index endpoint builds with local embedder', async t => {
+  const paths = await fixture(t); const server = await listeningServer(t, createApp({ ...paths, ollamaClient, localGenerator: grounded, cloudGenerator: { model: 'cloud', configured: false } }));
+  const result = await request(server).post('/api/rag/index').send({}).expect(200); assert.equal(result.body.index.embedding.model, 'embeddinggemma');
+  await fs.access(path.join(paths.indexesDir, 'structured.json'));
 });
 
-test('upstream Ollama failure and unknown API route are controlled', async t => {
-  const fetchImpl = async url => url.endsWith('/api/version') ? response({ version: '1' }) : url.endsWith('/api/tags') ? response({ models: [{ name: 'qwen3:1.7b' }] }) : response({ error: 'generation failed' }, 500);
-  const server = await listeningServer(t, createApp({ ollamaClient: createOllamaClient({ fetchImpl }) }));
-  const result = await request(server).post('/api/llm/chat').send({ messages: [{ role: 'user', content: 'Привет' }] }).expect(502);
-  assert.equal(result.body.error, 'generation failed');
-  await request(server).get('/api/nope').expect(404);
+test('index endpoint rejects concurrent builds', async t => {
+  const paths = await fixture(t); let release;
+  const waiting = new Promise(resolve => { release = resolve; });
+  const slowEmbedder = { model: paths.embedder.model, async embed(texts) { await waiting; return paths.embedder.embed(texts); } };
+  const server = await listeningServer(t, createApp({ ...paths, embedder: slowEmbedder, ollamaClient, localGenerator: grounded, cloudGenerator: { model: 'cloud', configured: false } }));
+  const first = request(server).post('/api/rag/index').send({});
+  const pending = first.then(result => result);
+  await new Promise(resolve => setImmediate(resolve));
+  await request(server).post('/api/rag/index').send({}).expect(409);
+  release();
+  await pending;
 });
