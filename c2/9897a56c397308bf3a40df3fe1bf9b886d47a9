@@ -1,0 +1,53 @@
+server/OptimizationCore.js
+  s_d807068a41558f::t_86662ea2a99801 1-12,16-21,23-24,27,29-41,45-49,51-55
+.env.example
+  s_d807068a41558f::t_243abb1bab0893 2-3
+src/main.jsx
+  s_d807068a41558f::t_a22d0aafdeab2c 6-8,16-17,20-35,37-39,43-50,55-63,68,70,73,77-78,84,87-89,92
+  s_d807068a41558f::t_71f76b25edfeef 1,51-54,65-67,71-72,74-75,79-83,85
+server/ollama.test.js
+  s_d807068a41558f::t_e624e377520e52 7-8,11-13,15-27,30,33-36
+server/index.test.js
+  s_d807068a41558f::t_9ce04a3313bf9f 5-6,13-17,20-22,25-28,31-36,39-41,44-47
+server/index.js
+  s_d807068a41558f::t_b87bed029560c4 4-5,7,9,12-14,24-25,27-28,30,34-50,59
+src/styles.css
+  s_d807068a41558f::t_0a5d6192827a95 24-25,31-39,64
+  s_d807068a41558f::t_243abb1bab0893 4-23,27-30,40-58,60-63
+server/OptimizationCore.test.js
+  s_d807068a41558f::t_e624e377520e52 3,5-14,16-19,22-28,31-40
+README.md
+  s_d807068a41558f::t_d4510272c4b9a2 1,3,5-14,18,22-23,26,34,36,38-39,41,45-48,50,59
+package.json
+  s_d807068a41558f::t_243abb1bab0893 2,13
+server/ollama.js
+  s_d807068a41558f::t_ffa839e8d11fe8 69
+  s_d807068a41558f::t_587e724e0ecfb6 1-2,10,13-15,21,23-24,26,30,34-50,55-60,62-67
+index.html
+  s_d807068a41558f::t_243abb1bab0893 11-12
+package-lock.json
+  s_d807068a41558f::t_a653c63f0337cd 2,8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "c29897a56c397308bf3a40df3fe1bf9b886d47a9",
+  "prompts": {},
+  "sessions": {
+    "s_d807068a41558f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1216b-952a-76b2-b35d-0cdf245f7390",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Anton Taklionak <anton.taklionak@viber.com>",
+      "token_usage": {
+        "input_tokens": 128282,
+        "output_tokens": 39832,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 7419136
+      },
+      "billing_source": "subscription"
+    }
+  }
+}
