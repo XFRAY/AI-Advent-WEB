@@ -1,0 +1,103 @@
+server/indexing/pipeline.js
+  s_0317f76ad8c207::t_05576aab829563 1-32
+server/index.js
+  s_0317f76ad8c207::t_8cb3fd03afbce2 3,5-11,13,15,17-23,31-40,42-45,47-49,52-56,58-62,64-65,69,78
+server/indexing/parsers.test.js
+  s_0317f76ad8c207::t_05576aab829563 1-8
+server/indexing/store.js
+  s_0317f76ad8c207::t_05576aab829563 1-45
+server/indexing/search.js
+  s_0317f76ad8c207::t_05576aab829563 1-21
+corpus/cafe-most.md
+  s_0317f76ad8c207::t_05576aab829563 1-31
+corpus/cafe-sever.md
+  s_0317f76ad8c207::t_05576aab829563 1-39
+corpus/cafe-atelier.md
+  s_0317f76ad8c207::t_05576aab829563 1-31
+server/indexing/chunking.js
+  s_0317f76ad8c207::t_05576aab829563 1-39
+server/indexing/corpus.js
+  s_0317f76ad8c207::t_05576aab829563 1-33
+server/index.test.js
+  s_0317f76ad8c207::t_669c43b4759b57 61,67-77
+  s_0317f76ad8c207::t_04f066f15f0c40 3-5,8-9,12-13,16-22,25-26,28-32,35-40,43-49,52-58,62-64
+corpus/cafe-zeleny-sad.md
+  s_0317f76ad8c207::t_05576aab829563 1-31
+server/ollama.test.js
+  s_0317f76ad8c207::t_04f066f15f0c40 1-25
+corpus/manifest.json
+  s_0317f76ad8c207::t_05576aab829563 1-9
+README.md
+  s_0317f76ad8c207::t_42ad657e312298 1,3,6-7,10,12,17,20,28,30,32,34-37,39,41,43-46,48,50-52,54,61
+server/indexing/embeddings.js
+  s_0317f76ad8c207::t_5a53030b6c07d5 1,5-6,11
+  s_0317f76ad8c207::t_05576aab829563 2-4,7-10,12-21
+server/indexing/pipeline.test.js
+  s_0317f76ad8c207::t_05576aab829563 1-58
+src/styles.css
+  s_0317f76ad8c207::t_f6abde2529e445 3,7
+  s_0317f76ad8c207::t_7581b379bcf13f 22-23
+  s_0317f76ad8c207::t_c96678712d82c3 40
+  s_0317f76ad8c207::t_b6dfe42b7e3cea 6,9,16,19-21,39
+  s_0317f76ad8c207::t_a7deb90edb7179 17
+  s_0317f76ad8c207::t_4fd89f1dabb034 5,8,10-15,24-38
+  s_0317f76ad8c207::t_4b683ca0538967 18
+server/indexing/cli.js
+  s_0317f76ad8c207::t_5a53030b6c07d5 5-6,9
+  s_0317f76ad8c207::t_05576aab829563 1-4,7-8,10-20
+server/RagCore.js
+  s_0317f76ad8c207::t_7bb2bd3abfa8c1 24-31
+  s_0317f76ad8c207::t_9b100b2f1cb91e 49-59
+  s_0317f76ad8c207::t_a38d86f4ef5125 1-23,32-48,60-81
+.env.example
+  s_0317f76ad8c207::t_5a53030b6c07d5 3-5
+src/main.jsx
+  s_0317f76ad8c207::t_a7deb90edb7179 49,51-52
+  s_0317f76ad8c207::t_4b683ca0538967 50
+  s_0317f76ad8c207::t_6295e1337f1e25 1,3,6,8,17-27,32-35,37-39,42-46,48,54
+server/indexing/parsers.js
+  s_0317f76ad8c207::t_05576aab829563 1-25
+server/indexing/tokenizer.js
+  s_0317f76ad8c207::t_05576aab829563 1-29
+server/RagCore.test.js
+  s_0317f76ad8c207::t_d1f96229136881 3,19-25
+  s_0317f76ad8c207::t_04f066f15f0c40 1-2,4-9,11-18,26
+  s_0317f76ad8c207::t_7bb2bd3abfa8c1 10
+server/indexing/chunking.test.js
+  s_0317f76ad8c207::t_05576aab829563 1-22
+index.html
+  s_0317f76ad8c207::t_5663c50152dc70 11-12
+corpus/cafe-pristan.md
+  s_0317f76ad8c207::t_05576aab829563 1-31
+package.json
+  s_0317f76ad8c207::t_5a53030b6c07d5 2,13-14,24
+server/ollama.js
+  s_0317f76ad8c207::t_4b683ca0538967 27,30,53,64
+  s_0317f76ad8c207::t_d22da312717323 32-34
+  s_0317f76ad8c207::t_a38d86f4ef5125 1-26,28-29,31,35-52,54-63,65-71
+package-lock.json
+  s_0317f76ad8c207::t_66250685f6087f 2,8,18,2930-2950
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "fb9105fa68394bd91be93be933f10586dcbc02ba",
+  "prompts": {},
+  "sessions": {
+    "s_0317f76ad8c207": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11a5f-62b1-7162-82bb-21e2333f077d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Anton Taklionak <anton.taklionak@viber.com>",
+      "token_usage": {
+        "input_tokens": 246783,
+        "output_tokens": 44103,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 10522880
+      },
+      "billing_source": "subscription"
+    }
+  }
+}
