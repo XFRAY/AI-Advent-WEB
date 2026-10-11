@@ -1,92 +1,80 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Alert, Box, Button, Chip, CircularProgress, CssBaseline, LinearProgress, Paper, Stack, TextField, ThemeProvider, Typography, createTheme } from '@mui/material';
+import { Alert, Box, Button, Chip, CircularProgress, CssBaseline, IconButton, InputAdornment, LinearProgress, Paper, Stack, TextField, ThemeProvider, Tooltip, Typography, createTheme } from '@mui/material';
 import './styles.css';
 
-const theme = createTheme({ palette: { mode: 'dark', primary: { main: '#c6ff4a', contrastText: '#10130a' }, secondary: { main: '#78d9ff' }, background: { default: '#080a08', paper: '#141712' } }, typography: { fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', h1: { fontWeight: 850, letterSpacing: '-.055em' }, button: { fontWeight: 750, textTransform: 'none' } }, shape: { borderRadius: 16 } });
-const examples = ['Почему launch в viewModelScope безопаснее GlobalScope?', 'Покажи sealed interface для состояния экрана загрузки.', 'Как исправить утечку Context во ViewModel?'];
-const voteOptions = [['baseline', 'Лучше до'], ['optimized', 'Лучше после'], ['equal', 'Равны'], ['neither', 'Оба мимо']];
+const glyph = value => function Glyph() { return <span className="glyph" aria-hidden="true">{value}</span>; };
+const DeleteOutline = glyph('⌫'); const Key = glyph('◆'); const Lan = glyph('⌁'); const Lock = glyph('▣'); const PlayArrow = glyph('▶'); const Refresh = glyph('↻'); const Send = glyph('➜'); const Speed = glyph('ϟ'); const Visibility = glyph('◉'); const VisibilityOff = glyph('○');
 
-async function request(path, options = {}) {
-  const response = await fetch(path, { ...options, headers: options.body ? { 'Content-Type': 'application/json' } : undefined });
+const theme = createTheme({ palette: { mode: 'dark', primary: { main: '#d7ff53', contrastText: '#101409' }, secondary: { main: '#6bdcff' }, background: { default: '#080a08', paper: '#141712' } }, typography: { fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', h1: { fontWeight: 900, letterSpacing: '-.055em' }, h4: { fontWeight: 850 }, button: { fontWeight: 800, textTransform: 'none' } }, shape: { borderRadius: 16 } });
+const examples = ['Объясни StateFlow на простом примере', 'Напиши retry с exponential backoff на Kotlin', 'Как безопасно хранить токен в Android?'];
+
+async function api(path, key, options = {}) {
+  const started = performance.now();
+  const response = await fetch(path, { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${key}` } });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || 'Не удалось выполнить запрос.');
-  return data;
-}
-function bytes(value) { if (!Number.isFinite(value)) return '—'; return value >= 1e9 ? `${(value / 1e9).toFixed(2)} ГБ` : `${Math.round(value / 1e6)} МБ`; }
-function duration(value) { return Number.isFinite(value) ? `${(value / 1000).toFixed(2)} с` : '—'; }
-function StateChip({ ok, children }) { return <Chip size="small" color={ok ? 'primary' : 'default'} variant={ok ? 'filled' : 'outlined'} label={`${ok ? '●' : '○'} ${children}`} />; }
-
-function ProfileCard({ profile, accent }) {
-  if (!profile) return null;
-  return <Paper className={`profile-card ${accent}`} variant="outlined">
-    <Stack direction="row" justifyContent="space-between" gap={1}><Typography variant="overline" color={accent === 'after' ? 'primary' : 'secondary'}>{profile.label}</Typography><StateChip ok={profile.installed}>{profile.installed ? 'готово' : 'нет модели'}</StateChip></Stack>
-    <Typography fontWeight={850}>{profile.model}</Typography>
-    <Box className="parameter-grid"><span>quant</span><b>{profile.quantization}</b><span>temperature</span><b>{profile.options.temperature}</b><span>context</span><b>{profile.options.num_ctx}</b><span>max tokens</span><b>{profile.options.num_predict}</b><span>диск</span><b>{bytes(profile.sizeBytes)}</b></Box>
-  </Paper>;
+  if (!response.ok) { const error = new Error(data.error?.message || 'Сервис не ответил.'); error.status = response.status; error.code = data.error?.code; error.retryAfter = response.headers.get('Retry-After'); throw error; }
+  return { data, elapsed: Math.round(performance.now() - started), remaining: response.headers.get('X-RateLimit-Remaining') };
 }
 
-function Metrics({ result }) {
-  if (result?.status !== 'success') return null;
-  const m = result.metrics || {}; const r = result.resources || {};
-  return <Box className="metrics"><span><b>{duration(m.wallMs)}</b> ответ</span><span><b>{m.tokensPerSecond ?? '—'}</b> ток/с</span><span><b>{m.outputTokens ?? '—'}</b> токенов</span><span><b>{bytes(r.residentBytes)}</b> RAM</span><span><b>{bytes(r.vramBytes)}</b> VRAM</span></Box>;
-}
-
-function Answer({ result, kind }) {
-  const success = result?.status === 'success';
-  return <Paper className={`answer-card ${kind}`} variant="outlined">
-    <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}><Typography variant="overline" color={kind === 'optimized' ? 'primary' : 'secondary'}>{kind === 'baseline' ? 'ДО · Q8' : 'ПОСЛЕ · Q4'}</Typography><Chip size="small" variant="outlined" label={result?.model || 'модель'} /></Stack>
-    {success ? <><Typography className="answer-text">{result.answer}</Typography><Metrics result={result} /></> : <Alert severity="error">{result?.error || 'Ответ не получен.'}</Alert>}
-  </Paper>;
-}
-
-function Vote({ value, onChange }) {
-  return <Box className="vote"><Typography variant="caption" color="text.secondary">Какой ответ качественнее?</Typography><Stack direction="row" gap={.5} flexWrap="wrap">{voteOptions.map(([id, label]) => <Button key={id} size="small" variant={value === id ? 'contained' : 'text'} onClick={() => onChange(id)}>{label}</Button>)}</Stack></Box>;
-}
-
-function Pair({ item, vote, onVote }) {
-  return <Box className="pair"><Box className="task-title">{item.category && <Chip size="small" label={item.category} />}<Box><Typography fontWeight={850}>{item.title || 'Произвольный вопрос'}</Typography><Typography variant="body2" color="text.secondary">{item.prompt}</Typography></Box></Box><Box className="comparison"><Answer result={item.baseline} kind="baseline"/><Answer result={item.optimized} kind="optimized"/></Box><Vote value={vote} onChange={onVote}/></Box>;
-}
-
-function ChatTurn({ item, vote, onVote }) {
-  return <Box className="chat-turn"><Box className="user-row"><Paper className="user-bubble">{item.prompt}</Paper></Box><Box className="assistant-row"><Box className="comparison"><Answer result={item.baseline} kind="baseline"/><Answer result={item.optimized} kind="optimized"/></Box><Vote value={vote} onChange={onVote}/></Box></Box>;
-}
-
-function Summary({ tasks, votes }) {
-  const successful = tasks.flatMap(task => [task.baseline, task.optimized]).filter(item => item.status === 'success');
-  const byProfile = key => tasks.map(task => task[key]).filter(item => item.status === 'success');
-  const average = (items, field) => items.length ? items.reduce((sum, item) => sum + (item.metrics?.[field] || 0), 0) / items.length : null;
-  const baseline = byProfile('baseline'); const optimized = byProfile('optimized');
-  const counts = Object.values(votes).reduce((acc, vote) => ({ ...acc, [vote]: (acc[vote] || 0) + 1 }), {});
-  return <Paper className="summary" variant="outlined"><Typography variant="overline" color="primary">ИТОГ ЭКСПЕРИМЕНТА</Typography><Box className="summary-grid"><span><b>{Object.keys(votes).length}/{tasks.length}</b> оценено</span><span><b>{counts.optimized || 0}</b> побед «после»</span><span><b>{duration(average(baseline, 'wallMs'))}</b> среднее до</span><span><b>{duration(average(optimized, 'wallMs'))}</b> среднее после</span><span><b>{Math.round(average(baseline, 'tokensPerSecond') || 0)}</b> ток/с до</span><span><b>{Math.round(average(optimized, 'tokensPerSecond') || 0)}</b> ток/с после</span></Box>{successful.length === 0 && <Alert severity="warning">Нет успешных измерений.</Alert>}</Paper>;
-}
+function StatusDot({ ok, children }) { return <Chip size="small" className={ok ? 'status-ok' : ''} variant="outlined" label={<><span className="dot"/>{children}</>} />; }
+function Metric({ label, value, accent }) { return <Box className="metric"><Typography variant="caption">{label}</Typography><Typography className={accent ? 'accent' : ''}>{value}</Typography></Box>; }
 
 function App() {
-  const [status, setStatus] = useState(null); const [input, setInput] = useState(examples[0]); const [history, setHistory] = useState([]); const [pendingPrompt, setPendingPrompt] = useState(''); const [tasks, setTasks] = useState([]);
-  const [mode, setMode] = useState('compare'); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [chatVotes, setChatVotes] = useState({}); const [benchmarkVotes, setBenchmarkVotes] = useState({});
-  const historyEndRef = useRef(null);
-  const loadStatus = useCallback(async () => { try { setStatus(await request('/api/optimization/status')); } catch (next) { setError(next.message); } }, []);
-  useEffect(() => { loadStatus(); }, [loadStatus]);
-  const ready = status?.ollama.available && status?.profiles.baseline.installed && status?.profiles.optimized.installed;
-  const voteSummary = useMemo(() => Object.values(benchmarkVotes).filter(Boolean), [benchmarkVotes]);
-  useEffect(() => { if (mode === 'compare') historyEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [history, pendingPrompt, mode]);
+  const [key, setKey] = useState(() => sessionStorage.getItem('day30-api-key') || '');
+  const [showKey, setShowKey] = useState(false); const [status, setStatus] = useState(null); const [statusError, setStatusError] = useState('');
+  const [messages, setMessages] = useState([]); const [input, setInput] = useState(examples[0]); const [busy, setBusy] = useState(false); const [chatError, setChatError] = useState('');
+  const [loadResults, setLoadResults] = useState([]); const [loadBusy, setLoadBusy] = useState(false); const endRef = useRef(null);
 
-  async function compare(event) { event.preventDefault(); if (!input.trim() || busy) return; const prompt = input.trim(); setBusy(true); setError(''); setPendingPrompt(prompt); setInput(''); try { const data = await request('/api/optimization/compare', { method: 'POST', body: JSON.stringify({ prompt }) }); setHistory(current => [...current, { id: `${Date.now()}-${current.length}`, ...data }]); } catch (next) { setError(next.message); setInput(prompt); } finally { setPendingPrompt(''); setBusy(false); loadStatus(); } }
-  async function benchmark() { if (busy) return; setBusy(true); setError(''); setTasks([]); setBenchmarkVotes({}); try { const data = await request('/api/optimization/benchmark', { method: 'POST', body: '{}' }); setTasks(data.tasks); } catch (next) { setError(next.message); } finally { setBusy(false); loadStatus(); } }
+  const refreshStatus = useCallback(async () => {
+    if (!key.trim()) { setStatus(null); setStatusError(''); return; }
+    try { const result = await api('/api/status', key.trim()); setStatus(result.data); setStatusError(''); }
+    catch (error) { setStatus(null); setStatusError(error.status === 401 ? 'Ключ не принят сервисом.' : error.message); }
+  }, [key]);
+  useEffect(() => { const id = setTimeout(refreshStatus, 250); return () => clearTimeout(id); }, [refreshStatus]);
+  useEffect(() => { if (key) sessionStorage.setItem('day30-api-key', key); else sessionStorage.removeItem('day30-api-key'); }, [key]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, busy]);
 
-  return <Box className="page-shell"><Box component="header" className="topbar"><Stack direction="row" alignItems="center" gap={1.2}><Box className="mark">29</Box><Typography fontWeight={850}>AI ADVENT</Typography></Stack><Stack direction="row" gap={1}><StateChip ok={status?.ollama.available}>{status?.ollama.available ? `Ollama ${status.ollama.version || ''}` : 'Ollama offline'}</StateChip><Button variant="outlined" onClick={loadStatus}>Обновить</Button></Stack></Box>
-    <Box component="main" className="optimization-layout"><Box className="hero"><Typography variant="overline" color="primary">ДЕНЬ 29 · LOCAL LLM LAB</Typography><Typography variant="h1">Меньше веса.<br/><span>Больше пользы.</span></Typography><Typography className="lead" color="text.secondary">Оптимизируем локального Kotlin/Android-помощника: prompt, параметры и Q4-квантование против Q8-базы.</Typography><Box className="profiles"><ProfileCard profile={status?.profiles.baseline} accent="before"/><ProfileCard profile={status?.profiles.optimized} accent="after"/></Box></Box>
-      <Paper className="workspace" variant="outlined"><Box className="modebar"><Button variant={mode === 'compare' ? 'contained' : 'text'} onClick={() => setMode('compare')}>Чат</Button><Button variant={mode === 'benchmark' ? 'contained' : 'text'} onClick={() => setMode('benchmark')}>Benchmark · 4 задачи</Button>{mode === 'compare' && history.length > 0 && <Button className="clear-chat" size="small" color="inherit" onClick={() => { setHistory([]); setChatVotes({}); }}>Очистить</Button>}<Typography variant="caption" color="text.secondary">warm-up → замер → unload</Typography></Box>
-        <Box className="answer-area">{error && <Alert severity="error" className="page-error">{error}</Alert>}
-          {mode === 'compare' && history.length === 0 && !pendingPrompt && <Box className="empty chat-empty"><Typography variant="h4">История ответов появится здесь</Typography><Typography color="text.secondary">Каждый вопрос останется в списке вместе с ответами Q8 и Q4.</Typography>{!ready && <Alert severity="warning">Запустите Ollama и установите обе модели.</Alert>}</Box>}
-          {mode === 'compare' && (history.length > 0 || pendingPrompt) && <Box className="chat-history">{history.map(item => <ChatTurn key={item.id} item={item} vote={chatVotes[item.id]} onVote={value => setChatVotes(current => ({ ...current, [item.id]: value }))}/>)}{pendingPrompt && <Box className="chat-turn pending"><Box className="user-row"><Paper className="user-bubble">{pendingPrompt}</Paper></Box><Paper className="thinking-bubble" variant="outlined"><LinearProgress/><Typography variant="body2">Q8 и Q4 отвечают последовательно…</Typography></Paper></Box>}<div ref={historyEndRef}/></Box>}
-          {busy && mode === 'benchmark' && <Box className="loading-state"><LinearProgress/><Typography>Модели запускаются последовательно. Это может занять несколько минут.</Typography></Box>}
-          {!busy && mode === 'benchmark' && tasks.length === 0 && <Box className="empty"><Typography variant="h4">4 Android-задачи</Typography><Typography color="text.secondary">Kotlin, Coroutines, Lifecycle и Compose. После прогона оцените каждую пару.</Typography><Button variant="contained" size="large" disabled={!ready} onClick={benchmark}>Запустить benchmark</Button></Box>}
-          {!busy && mode === 'benchmark' && tasks.length > 0 && <Box className="results"><Summary tasks={tasks} votes={benchmarkVotes}/>{tasks.map(task => <Pair key={task.id} item={task} vote={benchmarkVotes[task.id]} onVote={value => setBenchmarkVotes(current => ({ ...current, [task.id]: value }))}/>)}</Box>}
+  async function send(event) {
+    event.preventDefault(); const text = input.trim(); if (!text || busy || !status) return;
+    const next = [...messages, { role: 'user', content: text }]; setMessages(next); setInput(''); setBusy(true); setChatError('');
+    try { const result = await api('/v1/chat/completions', key.trim(), { method: 'POST', body: JSON.stringify({ model: status.model, messages: next, temperature: 0.3, max_tokens: Math.min(320, status.limits.maxOutputTokens), stream: false }) }); setMessages(current => [...current, result.data.choices[0].message]); }
+    catch (error) { setChatError(error.status === 429 ? `${error.message}${error.retryAfter ? ` Повторите через ${error.retryAfter} с.` : ''}` : error.message); setInput(text); setMessages(messages); }
+    finally { setBusy(false); refreshStatus(); }
+  }
+
+  async function runLoadTest() {
+    if (!status || loadBusy) return; setLoadBusy(true); setLoadResults([]);
+    const jobs = Array.from({ length: 6 }, (_, index) => (async () => {
+      const started = performance.now();
+      try { const result = await api('/v1/chat/completions', key.trim(), { method: 'POST', body: JSON.stringify({ model: status.model, messages: [{ role: 'user', content: `Проверка сети #${index + 1}. Ответь одним словом: готов.` }], max_tokens: 16, temperature: 0, stream: false }) }); return { id: index + 1, ok: true, code: 200, elapsed: result.elapsed, answer: result.data.choices[0].message.content }; }
+      catch (error) { return { id: index + 1, ok: false, code: error.status || 'ERR', elapsed: Math.round(performance.now() - started), answer: error.code === 'queue_full' ? 'очередь заполнена' : error.message }; }
+    })());
+    const results = await Promise.all(jobs); setLoadResults(results); setLoadBusy(false); refreshStatus();
+  }
+
+  const ready = status?.ollama.available && status?.ollama.installed;
+  return <Box className="page-shell">
+    <Box component="header" className="topbar"><Stack direction="row" alignItems="center" gap={1.2}><Box className="mark">30</Box><Typography fontWeight={900}>AI ADVENT</Typography><Chip size="small" label="PRIVATE NODE" className="private-chip" /></Stack><Stack direction="row" gap={1} alignItems="center"><StatusDot ok={ready}>{ready ? 'service online' : 'locked / offline'}</StatusDot><Tooltip title="Обновить статус"><IconButton onClick={refreshStatus}><Refresh /></IconButton></Tooltip></Stack></Box>
+    <Box component="main" className="service-layout">
+      <Box className="left-column">
+        <Box className="hero"><Typography variant="overline" color="primary">ДЕНЬ 30 · PRIVATE LLM SERVICE</Typography><Typography variant="h1">Ваш AI.<br/><span>В вашей сети.</span></Typography><Typography className="lead" color="text.secondary">Локальная Qwen отвечает через защищённый OpenAI-compatible API. История остаётся в браузере, модель — на вашем сервере.</Typography></Box>
+        <Paper className="access-card" variant="outlined"><Stack direction="row" gap={1.2} alignItems="center"><Box className="icon-box"><Key /></Box><Box><Typography fontWeight={850}>Доступ к узлу</Typography><Typography variant="caption" color="text.secondary">Ключ хранится только в этой вкладке</Typography></Box></Stack><TextField type={showKey ? 'text' : 'password'} size="small" fullWidth value={key} onChange={event => setKey(event.target.value)} placeholder="Bearer API key" InputProps={{ endAdornment: <InputAdornment position="end"><IconButton size="small" onClick={() => setShowKey(value => !value)}>{showKey ? <VisibilityOff/> : <Visibility/>}</IconButton></InputAdornment> }}/>{statusError && <Alert severity="error">{statusError}</Alert>}</Paper>
+        <Paper className="node-card" variant="outlined"><Stack direction="row" justifyContent="space-between" alignItems="center"><Box><Typography variant="overline" color="secondary">NODE STATUS</Typography><Typography className="model-name">{status?.model || 'qwen3:1.7b-q4_K_M'}</Typography></Box><Box className="lock-badge"><Lock /></Box></Stack><Box className="metric-grid"><Metric label="CONTEXT" value={status ? `${status.limits.contextTokens} tok` : '—'}/><Metric label="MAX OUTPUT" value={status ? `${status.limits.maxOutputTokens} tok` : '—'}/><Metric label="RATE LIMIT" value={status ? `${status.limits.requestsPerWindow}/min` : '—'}/><Metric label="QUEUE" value={status ? `${status.runtime.queued}/${status.limits.queueSize}` : '—'} accent={status?.runtime.queued > 0}/></Box></Paper>
+      </Box>
+      <Paper className="workspace" variant="outlined">
+        <Box className="workspace-tabs"><Button className="active-tab" startIcon={<Lan/>}>Сетевой чат</Button><Box className="secure-label"><Lock fontSize="inherit"/> HTTP API · Bearer</Box>{messages.length > 0 && <Button color="inherit" size="small" startIcon={<DeleteOutline/>} onClick={() => { setMessages([]); setChatError(''); }}>Очистить</Button>}</Box>
+        <Box className="conversation">
+          {!ready && <Box className="empty-state"><Box className="big-lock"><Lock/></Box><Typography variant="h4">Подключите приватный узел</Typography><Typography color="text.secondary">Введите API-ключ. Сервис проверит Ollama и наличие модели.</Typography></Box>}
+          {ready && messages.length === 0 && <Box className="empty-state"><Typography variant="overline" color="primary">CONNECTION ESTABLISHED</Typography><Typography variant="h4">Канал защищён ключом</Typography><Typography color="text.secondary">Начните диалог — вся история будет передаваться вашей локальной модели.</Typography><Stack direction="row" gap={1} flexWrap="wrap" justifyContent="center">{examples.map(example => <Button key={example} variant="outlined" size="small" onClick={() => setInput(example)}>{example}</Button>)}</Stack></Box>}
+          {ready && messages.length > 0 && <Box className="messages">{messages.map((message, index) => <Box key={`${message.role}-${index}`} className={`message-row ${message.role}`}><Paper className="message-bubble" variant="outlined"><Typography variant="overline">{message.role === 'user' ? 'YOU' : 'LOCAL QWEN'}</Typography><Typography>{message.content}</Typography></Paper></Box>)}{busy && <Box className="message-row assistant"><Paper className="message-bubble thinking" variant="outlined"><LinearProgress/><Typography variant="body2">Модель генерирует ответ…</Typography></Paper></Box>}<div ref={endRef}/></Box>}
         </Box>
-        {mode === 'compare' && <Box component="form" className="question-box" onSubmit={compare}><TextField multiline minRows={2} maxRows={5} fullWidth value={input} onChange={event => setInput(event.target.value)} placeholder="Вопрос по Kotlin или Android…" inputProps={{ maxLength: 4000 }} disabled={busy}/><Button type="submit" variant="contained" size="large" disabled={!ready || busy || !input.trim()}>{busy ? <CircularProgress size={22}/> : 'Сравнить'}</Button><Stack direction="row" gap={.5} flexWrap="wrap">{examples.map(example => <Button key={example} size="small" onClick={() => setInput(example)}>{example}</Button>)}</Stack></Box>}
-        {mode === 'benchmark' && tasks.length > 0 && <Box className="benchmark-footer"><Typography variant="caption" color="text.secondary">Оценено: {voteSummary.length} из {tasks.length}</Typography><Button variant="outlined" disabled={busy || !ready} onClick={benchmark}>Повторить benchmark</Button></Box>}
-      </Paper></Box></Box>;
+        {chatError && <Alert severity="error" className="chat-error">{chatError}</Alert>}
+        <Box component="form" className="composer" onSubmit={send}><TextField fullWidth multiline minRows={2} maxRows={5} value={input} onChange={event => setInput(event.target.value)} placeholder="Сообщение локальной модели…" disabled={!ready || busy}/><Button type="submit" variant="contained" disabled={!ready || busy || !input.trim()}>{busy ? <CircularProgress size={22}/> : <Send/>}</Button></Box>
+        <Box className="load-panel"><Box className="load-copy"><Box className="speed-icon"><Speed/></Box><Box><Typography fontWeight={850}>Проверка стабильности</Typography><Typography variant="caption" color="text.secondary">6 одновременных запросов · очередь до {status?.limits.queueSize ?? 4}</Typography></Box></Box><Button variant="outlined" startIcon={loadBusy ? <CircularProgress size={16}/> : <PlayArrow/>} disabled={!ready || loadBusy} onClick={runLoadTest}>{loadBusy ? 'Проверяем' : 'Запустить'}</Button>{(loadBusy || loadResults.length > 0) && <Box className="load-results">{loadBusy && <LinearProgress/>}{loadResults.map(item => <Box key={item.id} className={`load-row ${item.ok ? 'success' : 'failure'}`}><b>#{item.id}</b><Chip size="small" label={item.code}/><span>{item.elapsed} ms</span><em>{item.answer}</em></Box>)}</Box>}</Box>
+      </Paper>
+    </Box>
+  </Box>;
 }
 
 createRoot(document.getElementById('root')).render(<React.StrictMode><ThemeProvider theme={theme}><CssBaseline/><App/></ThemeProvider></React.StrictMode>);

@@ -31,9 +31,9 @@ export function createOllamaClient({ baseUrl = process.env.OLLAMA_BASE_URL || DE
     return data;
   }
 
-  async function chat({ model, messages, options, keepAlive = '10m' }) {
+  async function chat({ model, messages, options, keepAlive = '10m', timeoutMs = 180_000 }) {
     const started = performance.now();
-    const data = await call('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, messages, stream: false, think: false, keep_alive: keepAlive, options }) });
+    const data = await call('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, messages, stream: false, think: false, keep_alive: keepAlive, options }), timeoutMs });
     const wallMs = Math.round(performance.now() - started);
     const content = data.message?.content?.trim();
     if (!content) throw new Error('Ollama вернул пустой ответ.');

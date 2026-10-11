@@ -1,0 +1,52 @@
+services:
+  ollama:
+    image: ollama/ollama:0.12.3
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  model-init:
+    image: ollama/ollama:0.12.3
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:1.7b-q4_K_M}
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull \"$$OLLAMA_MODEL\""]
+    restart: "no"
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+      model-init:
+        condition: service_completed_successfully
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3001
+      API_KEY: ${API_KEY:?Set API_KEY in .env}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:1.7b-q4_K_M}
+      MAX_CONTEXT_TOKENS: ${MAX_CONTEXT_TOKENS:-2048}
+      MAX_OUTPUT_TOKENS: ${MAX_OUTPUT_TOKENS:-512}
+      RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-10}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      MAX_CONCURRENT_REQUESTS: ${MAX_CONCURRENT_REQUESTS:-1}
+      MAX_QUEUE_SIZE: ${MAX_QUEUE_SIZE:-4}
+      GENERATION_TIMEOUT_MS: ${GENERATION_TIMEOUT_MS:-180000}
+      TRUST_PROXY: ${TRUST_PROXY:-0}
+    ports:
+      - "${SERVICE_PORT:-3001}:3001"
+
+volumes:
+  ollama-data:

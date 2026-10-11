@@ -1,59 +1,114 @@
-# День 29 · Оптимизация локальной LLM
+# День 30 · Приватный LLM-сервис
 
-Локальный A/B-стенд сравнивает две конфигурации Kotlin/Android-помощника на одной модели Qwen3 1.7B:
+Локальная `qwen3:1.7b-q4_K_M` работает как приватный сетевой сервис: Ollama изолирован во внутренней Docker-сети, а наружу опубликован только защищённый HTTP API и web-интерфейс. API совместим с форматом OpenAI Chat Completions и принимает полную историю разговора.
 
-| | До | После |
-|---|---|---|
-| Модель | `qwen3:1.7b-q8_0` | `qwen3:1.7b-q4_K_M` |
-| Квантование | Q8_0 | Q4_K_M |
-| Temperature | 0.7 | 0.15 |
-| Context window | 4096 | 2048 |
-| Max tokens | 700 | 320 |
-| Prompt | универсальный | Kotlin/Android-эксперт |
+```text
+браузер / OpenAI SDK ── Bearer API key ──▶ Node API ──▶ очередь ──▶ Ollama
+                                                 1 active + 4 queued
+```
 
-Обе конфигурации получают одинаковый запрос и запускаются последовательно. Перед замером модель прогревается, после него выгружается из памяти. Интерфейс показывает время ответа, скорость генерации, число токенов, resident RAM/VRAM и размер модели на диске.
+## Быстрый запуск через Docker Compose
 
-## Подготовка
+Требуются Docker Engine и Compose plugin на Linux VPS или домашнем сервере.
 
-Нужны Node.js 20.19+ и [Ollama](https://ollama.com/download). Запустите Ollama и загрузите обе версии модели:
+```sh
+cp .env.example .env
+openssl rand -hex 32
+```
+
+Запишите полученное значение в `API_KEY` файла `.env`, затем запустите сервис:
+
+```sh
+docker compose up -d --build
+docker compose ps
+```
+
+При первом запуске контейнер `model-init` загрузит модель в persistent volume `ollama-data`. Web-интерфейс будет доступен по адресу `http://SERVER_IP:3001`. Порт Ollama `11434` на хост не публикуется.
+
+Для NVIDIA GPU установите NVIDIA Container Toolkit и подключите override:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+```
+
+Откройте `SERVICE_PORT` только для доверенной сети или VPN. Например, с UFW для локальной подсети:
+
+```sh
+sudo ufw allow from 192.168.1.0/24 to any port 3001 proto tcp
+```
+
+Для публичного домена поставьте перед сервисом Caddy, nginx или Traefik с HTTPS. При работе за reverse proxy задайте `TRUST_PROXY=1`, чтобы rate limit использовал адрес клиента.
+
+## Нативный режим разработки
+
+Нужны Node.js 20.19+ и Ollama:
 
 ```sh
 ollama serve
-ollama pull qwen3:1.7b-q8_0
 ollama pull qwen3:1.7b-q4_K_M
-```
-
-Если Ollama уже работает как приложение, отдельный `ollama serve` не нужен.
-
-```sh
 npm install
 cp .env.example .env
 npm run dev
 ```
 
-Откройте http://127.0.0.1:5173.
+Vite откроется на `http://127.0.0.1:5173`, API — на `http://0.0.0.0:3001`.
 
-## Режимы сравнения
+## HTTP API
 
-- **Свой вопрос** — произвольный запрос по Kotlin или Android и ручной выбор лучшего ответа.
-- **Benchmark** — четыре фиксированные задачи: Kotlin null-safety, Coroutines, Lifecycle/ViewModel и Jetpack Compose. После оценки каждой пары интерфейс показывает сводку качества и средние показатели производительности.
+Проверка liveness не требует авторизации и не раскрывает конфигурацию:
 
-Оценки качества живут только в состоянии страницы и никуда не отправляются. Приложение полностью локальное, облачные API и ключи не используются.
+```sh
+curl http://SERVER_IP:3001/api/health
+```
 
-## API
+Статус модели, очереди и лимитов защищён ключом:
 
-- `GET /api/optimization/status` — состояние Ollama, наличие моделей, их параметры и размеры.
-- `POST /api/optimization/compare` — `{ "prompt": "..." }`, последовательное A/B-сравнение.
-- `POST /api/optimization/benchmark` — полный фиксированный benchmark.
-- `GET /api/health` — состояние backend и текущего запуска.
+```sh
+curl http://SERVER_IP:3001/api/status \
+  -H "Authorization: Bearer $API_KEY"
+```
 
-Имена моделей можно переопределить через `OLLAMA_BASELINE_MODEL` и `OLLAMA_OPTIMIZED_MODEL`. Для корректного смысла эксперимента выбранные теги должны соответствовать Q8_0 и Q4_K_M.
+Многотуровый чат использует OpenAI-compatible endpoint:
+
+```sh
+curl http://SERVER_IP:3001/v1/chat/completions \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model":"qwen3:1.7b-q4_K_M",
+    "messages":[
+      {"role":"system","content":"Отвечай кратко."},
+      {"role":"user","content":"Что такое локальная LLM?"}
+    ],
+    "max_tokens":256,
+    "stream":false
+  }'
+```
+
+Пример с официальным OpenAI SDK:
+
+```js
+import OpenAI from 'openai';
+
+const client = new OpenAI({ apiKey: process.env.API_KEY, baseURL: 'http://SERVER_IP:3001/v1' });
+const response = await client.chat.completions.create({ model: 'qwen3:1.7b-q4_K_M', messages: [{ role: 'user', content: 'Привет!' }] });
+console.log(response.choices[0].message.content);
+```
+
+Streaming в этой версии не поддерживается. Клиент должен передавать `stream: false` или не указывать поле.
+
+## Ограничения и нагрузка
+
+По умолчанию сервис разрешает 10 авторизованных запросов в минуту для сочетания API-ключа и IP, выполняет одну генерацию и держит до четырёх запросов в FIFO-очереди. Переполнение rate limit или очереди возвращает `429` и `Retry-After`. Контекст ограничен 2048 токенами, ответ — 512 токенами, timeout — 180 секундами. Все значения настраиваются в `.env`.
+
+Экран «Проверка стабильности» отправляет шесть запросов одновременно. При стандартной конфигурации пять выполнятся последовательно, а шестой подтвердит защиту очереди ответом `429`.
 
 ## Проверка
 
 ```sh
 npm test
 npm run build
+API_KEY=test docker compose config --quiet
 ```
 
-Автоматические тесты используют имитацию Ollama и не требуют установленных моделей. Полный ручной smoke test требует запущенный Ollama и обе загруженные модели.
+Тесты используют имитацию Ollama: проверяют авторизацию, контракт Chat Completions, передачу истории, контекст, rate limit, FIFO-очередь, timeout и восстановление после ошибок. Для полного сетевого smoke test запустите Compose и откройте UI с другого устройства в той же сети.
